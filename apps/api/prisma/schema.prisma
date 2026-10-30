@@ -1,0 +1,262 @@
+// NiyamSetu – Prisma schema for the 7 modules.
+// All data in this database is fictional.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+enum Role {
+  ADMIN
+  OFFICER
+  INSTITUTION
+}
+
+enum ApplicationStage {
+  SUBMITTED
+  SCRUTINY
+  EXPERT_VISIT
+  COMMITTEE
+  APPROVED
+  RETURNED
+}
+
+enum DeficiencyStatus {
+  OPEN
+  EVIDENCE_SUBMITTED
+  VERIFIED
+  REJECTED
+  OVERDUE
+}
+
+enum AlertType {
+  DUE_SOON
+  OVERDUE
+  ESCALATION
+  STATUS_CHANGE
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  STATUS_CHANGE
+  LOGIN
+}
+
+// ---------- Module 7: Security (users) ----------
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  passwordHash  String
+  name          String
+  role          Role
+  // One-level escalation goes to this user.
+  managerId     String?
+  manager       User?        @relation("UserManager", fields: [managerId], references: [id])
+  reports       User[]       @relation("UserManager")
+  // Only set for INSTITUTION users.
+  institutionId String?
+  institution   Institution? @relation(fields: [institutionId], references: [id])
+  createdAt     DateTime     @default(now())
+
+  assignedApplications Application[]             @relation("AssignedOfficer")
+  stageChanges         ApplicationStageHistory[]
+  ownedDeficiencies    Deficiency[]              @relation("DeficiencyOwner")
+  uploadedEvidence     Evidence[]                @relation("EvidenceUploader")
+  verifiedEvidence     Evidence[]                @relation("EvidenceVerifier")
+  alerts               Alert[]
+  auditLogs            AuditLog[]
+}
+
+// ---------- Institutions ----------
+
+model Institution {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  state          String
+  city           String
+  type           String // e.g. "Engineering", "Management"
+  // Measurable fields that compliance rules check.
+  studentIntake  Int
+  facultyCount   Int
+  builtUpAreaSqm Int
+  landAreaAcres  Float
+  labCount       Int
+  createdAt      DateTime @default(now())
+
+  users        User[]
+  applications Application[]
+  documents    InstitutionDocument[]
+}
+
+model InstitutionDocument {
+  id            String      @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id])
+  docType       String // e.g. LAND_DEED, BUILDING_PLAN, FIRE_NOC
+  fileName      String
+  expiryDate    DateTime? // null = never expires
+  uploadedAt    DateTime    @default(now())
+
+  @@index([institutionId])
+}
+
+// ---------- Module 1: Application Workflow ----------
+
+model Application {
+  id                String           @id @default(cuid())
+  institutionId     String
+  institution       Institution      @relation(fields: [institutionId], references: [id])
+  programme         String
+  academicYear      String // e.g. "2027-28"
+  stage             ApplicationStage @default(SUBMITTED)
+  assignedOfficerId String?
+  assignedOfficer   User?            @relation("AssignedOfficer", fields: [assignedOfficerId], references: [id])
+  // Expert visit (EVC) stage details.
+  expertVisitDate   DateTime?
+  expertNames       String?
+  submittedAt       DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  stageHistory ApplicationStageHistory[]
+  ruleChecks   RuleCheck[]
+  deficiencies Deficiency[]
+
+  @@index([institutionId])
+  @@index([assignedOfficerId])
+}
+
+model ApplicationStageHistory {
+  id            String            @id @default(cuid())
+  applicationId String
+  application   Application       @relation(fields: [applicationId], references: [id])
+  fromStage     ApplicationStage? // null for the first entry
+  toStage       ApplicationStage
+  changedById   String
+  changedBy     User              @relation(fields: [changedById], references: [id])
+  remark        String?
+  changedAt     DateTime          @default(now())
+
+  @@index([applicationId])
+}
+
+// ---------- Module 3: Compliance Register ----------
+
+// Never update a rule in place: add a new row with version + 1.
+model ComplianceRule {
+  id            String    @id @default(cuid())
+  code          String // e.g. FACULTY_RATIO
+  version       Int
+  title         String
+  source        String // seed thresholds are labelled "placeholder"
+  effectiveFrom DateTime
+  effectiveTo   DateTime? // null = still in force
+  params        Json
+  createdAt     DateTime  @default(now())
+
+  checks RuleCheck[]
+
+  @@unique([code, version])
+}
+
+model RuleCheck {
+  id            String         @id @default(cuid())
+  applicationId String
+  application   Application    @relation(fields: [applicationId], references: [id])
+  // Points to the exact rule version that was used.
+  ruleId        String
+  rule          ComplianceRule @relation(fields: [ruleId], references: [id])
+  passed        Boolean
+  actualValue   String
+  expectedValue String
+  checkedAt     DateTime       @default(now())
+
+  deficiencies Deficiency[]
+
+  @@index([applicationId])
+}
+
+// ---------- Module 2: Deficiency Management ----------
+
+model Deficiency {
+  id             String           @id @default(cuid())
+  applicationId  String
+  application    Application      @relation(fields: [applicationId], references: [id])
+  ruleCheckId    String?
+  ruleCheck      RuleCheck?       @relation(fields: [ruleCheckId], references: [id])
+  requirement    String
+  evidenceNeeded String
+  ownerId        String?
+  owner          User?            @relation("DeficiencyOwner", fields: [ownerId], references: [id])
+  dueDate        DateTime?
+  status         DeficiencyStatus @default(OPEN)
+  escalatedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  evidence Evidence[]
+  alerts   Alert[]
+
+  @@index([applicationId])
+  @@index([ownerId])
+}
+
+model Evidence {
+  id           String     @id @default(cuid())
+  deficiencyId String
+  deficiency   Deficiency @relation(fields: [deficiencyId], references: [id])
+  uploadedById String
+  uploadedBy   User       @relation("EvidenceUploader", fields: [uploadedById], references: [id])
+  fileName     String
+  filePath     String // relative to apps/api/uploads/
+  mimeType     String
+  note         String?
+  verifiedById String?
+  verifiedBy   User?      @relation("EvidenceVerifier", fields: [verifiedById], references: [id])
+  verifiedAt   DateTime?
+  uploadedAt   DateTime   @default(now())
+
+  @@index([deficiencyId])
+}
+
+// ---------- Modules 4 + 5: Deadline Engine / Alerts ----------
+
+model Alert {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id])
+  deficiencyId String?
+  deficiency   Deficiency? @relation(fields: [deficiencyId], references: [id])
+  type         AlertType
+  message      String
+  // e.g. "ESCALATION:<deficiencyId>:L1" – stops the same alert being sent twice.
+  dedupKey     String      @unique
+  isRead       Boolean     @default(false)
+  createdAt    DateTime    @default(now())
+
+  @@index([userId])
+}
+
+// ---------- Module 7: Audit ----------
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  actorId    String?
+  actor      User?       @relation(fields: [actorId], references: [id])
+  action     AuditAction
+  entityType String // e.g. "Application", "Deficiency"
+  entityId   String
+  before     Json?
+  after      Json?
+  createdAt  DateTime    @default(now())
+
+  @@index([entityType, entityId])
+}
