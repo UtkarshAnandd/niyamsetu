@@ -7,7 +7,7 @@ const MINUTE = 60 * 1000;
 const DAY = 24 * 60 * MINUTE;
 
 // DEMO_MODE=true: minutes instead of days.
-function windows() {
+export function windows() {
   const demo = process.env.DEMO_MODE === "true";
   return {
     dueSoonMs: demo ? 3 * MINUTE : 2 * DAY,

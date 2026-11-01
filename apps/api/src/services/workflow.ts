@@ -1,5 +1,16 @@
-import type { ApplicationStage } from "@prisma/client";
+import type { ApplicationStage, Prisma } from "@prisma/client";
 import type { AuthUser } from "../types/express";
+
+export const ALL_STAGES: ApplicationStage[] = [
+  "SUBMITTED", "SCRUTINY", "EXPERT_VISIT", "COMMITTEE", "APPROVED", "RETURNED",
+];
+
+// Applications a user may see: ADMIN all, OFFICER assigned to them, INSTITUTION its own.
+export function applicationScope(user: AuthUser): Prisma.ApplicationWhereInput {
+  if (user.role === "ADMIN") return {};
+  if (user.role === "OFFICER") return { assignedOfficerId: user.userId };
+  return { institutionId: user.institutionId ?? "__none__" };
+}
 
 // Which stage an application may move to next.
 export const ALLOWED_TRANSITIONS: Record<ApplicationStage, ApplicationStage[]> = {

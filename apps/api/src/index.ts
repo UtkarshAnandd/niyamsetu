@@ -10,6 +10,8 @@ import deficiencyRoutes from "./routes/deficiencies";
 import evidenceRoutes from "./routes/evidence";
 import alertRoutes from "./routes/alerts";
 import adminRoutes from "./routes/admin";
+import dashboardRoutes from "./routes/dashboard";
+import { auditRouter, applicationAuditRouter } from "./routes/audit";
 import { startDeadlineCron } from "./jobs/deadlines";
 import { errorHandler } from "./middleware/error";
 
@@ -40,6 +42,9 @@ app.use("/api/deficiencies", deficiencyRoutes);
 app.use("/api/evidence", evidenceRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/audit", auditRouter);
+app.use("/api/applications", applicationAuditRouter);
 app.use("/api/users", userRoutes);
 
 app.use(errorHandler);
