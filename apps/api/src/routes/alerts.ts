@@ -4,7 +4,7 @@ import { AlertType } from "@prisma/client";
 import { prisma } from "../db";
 import { requireAuth } from "../middleware/auth";
 
-// Read receipts are not audited (see CLAUDE.md working rules).
+// Read receipts are not audited: they are not regulatory actions.
 const router = Router();
 router.use(requireAuth);
 
