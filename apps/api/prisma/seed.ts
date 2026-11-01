@@ -154,8 +154,10 @@ async function seedUsers(institutionIds: string[]) {
   // Institution users escalate to an officer.
   const inst1 = await mk("inst1@niyamsetu.test", "Esha Registrar (fictional)", Role.INSTITUTION, { institutionId: institutionIds[0], managerId: officer1.id });
   const inst2 = await mk("inst2@niyamsetu.test", "Farhan Registrar (fictional)", Role.INSTITUTION, { institutionId: institutionIds[1], managerId: officer2.id });
+  // Not linked yet: the live demo registers a new college and links inst3 to it.
+  const inst3 = await mk("inst3@niyamsetu.test", "Gauri Registrar (fictional)", Role.INSTITUTION, { managerId: officer1.id });
 
-  return { admin1, admin2, officer1, officer2, inst1, inst2 };
+  return { admin1, admin2, officer1, officer2, inst1, inst2, inst3 };
 }
 
 // Stage path each sample application has walked through.

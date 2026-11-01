@@ -2,6 +2,9 @@ import express from "express";
 import cors from "cors";
 import { prisma } from "./db";
 import authRoutes from "./routes/auth";
+import institutionRoutes from "./routes/institutions";
+import applicationRoutes from "./routes/applications";
+import userRoutes from "./routes/users";
 import { errorHandler } from "./middleware/error";
 
 if (!process.env.JWT_SECRET) {
@@ -24,6 +27,9 @@ app.get("/api/health", async (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/institutions", institutionRoutes);
+app.use("/api/applications", applicationRoutes);
+app.use("/api/users", userRoutes);
 
 app.use(errorHandler);
 
