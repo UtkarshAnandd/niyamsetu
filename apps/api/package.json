@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
-    "db:reset": "prisma migrate reset --force"
+    "db:reset": "prisma migrate reset --force",
+    "test": "node --env-file=.env --import tsx tests/run.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
