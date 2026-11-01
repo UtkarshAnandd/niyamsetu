@@ -39,7 +39,7 @@ async function seedRules() {
         source: PLACEHOLDER_SOURCE,
         effectiveFrom: new Date("2024-07-01"),
         effectiveTo: new Date("2026-06-30"),
-        params: { maxStudentsPerFaculty: 15 },
+        params: { maxStudentsPerFaculty: 15, evidenceNeeded: "Appointment letters and salary statements for additional faculty to reach 1:15" },
       },
       {
         code: "FACULTY_RATIO",
@@ -47,7 +47,7 @@ async function seedRules() {
         title: "Student to faculty ratio",
         source: PLACEHOLDER_SOURCE,
         effectiveFrom: new Date("2026-07-01"),
-        params: { maxStudentsPerFaculty: 20 },
+        params: { maxStudentsPerFaculty: 20, evidenceNeeded: "Appointment letters and salary statements for additional faculty to reach 1:20" },
       },
       {
         code: "MIN_BUILTUP_AREA",
@@ -55,7 +55,7 @@ async function seedRules() {
         title: "Minimum built-up area per student",
         source: PLACEHOLDER_SOURCE,
         effectiveFrom: new Date("2024-07-01"),
-        params: { minSqmPerStudent: 10 },
+        params: { minSqmPerStudent: 10, evidenceNeeded: "Approved building plan and completion certificate showing the added built-up area" },
       },
       {
         code: "MIN_LAND_AREA",
@@ -63,7 +63,7 @@ async function seedRules() {
         title: "Minimum land area",
         source: PLACEHOLDER_SOURCE,
         effectiveFrom: new Date("2024-07-01"),
-        params: { minAcres: 2.5 },
+        params: { minAcres: 2.5, evidenceNeeded: "Registered land deed or lease for the additional land" },
       },
       {
         code: "MIN_LABS",
@@ -71,7 +71,7 @@ async function seedRules() {
         title: "Minimum number of laboratories",
         source: PLACEHOLDER_SOURCE,
         effectiveFrom: new Date("2024-07-01"),
-        params: { minLabs: 6 },
+        params: { minLabs: 6, evidenceNeeded: "Lab equipment purchase invoices and geo-tagged photos of each new lab" },
       },
       {
         code: "REQUIRED_DOCUMENTS",
@@ -79,7 +79,10 @@ async function seedRules() {
         title: "Mandatory documents present and not expired",
         source: PLACEHOLDER_SOURCE,
         effectiveFrom: new Date("2024-07-01"),
-        params: { docTypes: ["LAND_DEED", "BUILDING_PLAN", "FIRE_NOC"] },
+        params: {
+          docTypes: ["LAND_DEED", "BUILDING_PLAN", "FIRE_NOC"],
+          evidenceNeeded: "Upload the missing or renewed document with a valid expiry date",
+        },
       },
     ],
   });
