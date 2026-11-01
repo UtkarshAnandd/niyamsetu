@@ -76,14 +76,16 @@ router.patch("/:id/assign", requireRole("OFFICER", "ADMIN"), async (req, res) =>
     }
   }
 
+  // A new deadline on an OVERDUE deficiency reopens it, so the engine can alert again.
+  const reopen = dueDate && deficiency.status === "OVERDUE";
   const updated = await prisma.deficiency.update({
     where: { id: deficiency.id },
-    data: { ownerId, dueDate },
+    data: { ownerId, dueDate, ...(reopen && { status: "OPEN", escalatedAt: null }) },
   });
 
-  await audit(user.userId, "UPDATE", "Deficiency", deficiency.id,
-    { ownerId: deficiency.ownerId, dueDate: deficiency.dueDate },
-    { ownerId: updated.ownerId, dueDate: updated.dueDate });
+  await audit(user.userId, reopen ? "STATUS_CHANGE" : "UPDATE", "Deficiency", deficiency.id,
+    { ownerId: deficiency.ownerId, dueDate: deficiency.dueDate, status: deficiency.status, escalatedAt: deficiency.escalatedAt },
+    { ownerId: updated.ownerId, dueDate: updated.dueDate, status: updated.status, escalatedAt: updated.escalatedAt });
   res.json({ deficiency: updated });
 });
 

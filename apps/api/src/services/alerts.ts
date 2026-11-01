@@ -28,7 +28,25 @@ export async function createAlert(
   }
 }
 
+// Alerts the first non-null user in the list; if there is none, alerts every ADMIN.
+// Returns the ids of the users that got a NEW alert (empty if it was a duplicate).
+export async function alertWithFallback(
+  candidates: (string | null | undefined)[],
+  type: AlertType,
+  message: string,
+  deficiencyId: string | null,
+  dedupKey: string
+): Promise<string[]> {
+  const userId = candidates.find((id) => id);
+  if (userId) {
+    const alert = await createAlert(userId, type, message, deficiencyId, dedupKey);
+    return alert ? [userId] : [];
+  }
+  return alertAdmins(type, message, deficiencyId, dedupKey);
+}
+
 // Sends the same alert to every ADMIN. Each gets its own dedupKey: "<baseKey>:<adminId>".
+// Returns the ids of the admins that got a NEW alert.
 export async function alertAdmins(
   type: AlertType,
   message: string,
@@ -36,7 +54,10 @@ export async function alertAdmins(
   baseKey: string
 ) {
   const admins = await prisma.user.findMany({ where: { role: "ADMIN" } });
+  const alerted: string[] = [];
   for (const admin of admins) {
-    await createAlert(admin.id, type, message, deficiencyId, `${baseKey}:${admin.id}`);
+    const alert = await createAlert(admin.id, type, message, deficiencyId, `${baseKey}:${admin.id}`);
+    if (alert) alerted.push(admin.id);
   }
+  return alerted;
 }

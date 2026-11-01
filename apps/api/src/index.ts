@@ -8,6 +8,9 @@ import userRoutes from "./routes/users";
 import checkRoutes from "./routes/checks";
 import deficiencyRoutes from "./routes/deficiencies";
 import evidenceRoutes from "./routes/evidence";
+import alertRoutes from "./routes/alerts";
+import adminRoutes from "./routes/admin";
+import { startDeadlineCron } from "./jobs/deadlines";
 import { errorHandler } from "./middleware/error";
 
 if (!process.env.JWT_SECRET) {
@@ -35,6 +38,8 @@ app.use("/api/applications", applicationRoutes);
 app.use("/api/applications", checkRoutes);
 app.use("/api/deficiencies", deficiencyRoutes);
 app.use("/api/evidence", evidenceRoutes);
+app.use("/api/alerts", alertRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/users", userRoutes);
 
 app.use(errorHandler);
@@ -42,4 +47,9 @@ app.use(errorHandler);
 const port = Number(process.env.PORT) || 4000;
 app.listen(port, () => {
   console.log(`NiyamSetu API listening on http://localhost:${port}`);
+  if (process.env.DISABLE_CRON === "true") {
+    console.log("[cron] disabled (DISABLE_CRON=true)");
+  } else {
+    startDeadlineCron();
+  }
 });
