@@ -224,6 +224,8 @@ model Evidence {
   verifiedById String?
   verifiedBy   User?      @relation("EvidenceVerifier", fields: [verifiedById], references: [id])
   verifiedAt   DateTime?
+  // Officer's remark on VERIFIED or REJECTED (shown to the institution).
+  reviewRemark String?
   uploadedAt   DateTime   @default(now())
 
   @@index([deficiencyId])

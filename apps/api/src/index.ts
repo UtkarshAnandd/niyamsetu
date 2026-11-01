@@ -7,6 +7,7 @@ import applicationRoutes from "./routes/applications";
 import userRoutes from "./routes/users";
 import checkRoutes from "./routes/checks";
 import deficiencyRoutes from "./routes/deficiencies";
+import evidenceRoutes from "./routes/evidence";
 import { errorHandler } from "./middleware/error";
 
 if (!process.env.JWT_SECRET) {
@@ -33,6 +34,7 @@ app.use("/api/institutions", institutionRoutes);
 app.use("/api/applications", applicationRoutes);
 app.use("/api/applications", checkRoutes);
 app.use("/api/deficiencies", deficiencyRoutes);
+app.use("/api/evidence", evidenceRoutes);
 app.use("/api/users", userRoutes);
 
 app.use(errorHandler);

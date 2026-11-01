@@ -119,6 +119,19 @@ router.patch("/:id/stage", requireRole("OFFICER", "ADMIN"), async (req, res) => 
       allowed,
     });
   }
+  // An application can only be approved once every deficiency is VERIFIED.
+  if (toStage === "APPROVED") {
+    const pendingDeficiencies = await prisma.deficiency.findMany({
+      where: { applicationId: app.id, status: { not: "VERIFIED" } },
+      select: { id: true, requirement: true, status: true, dueDate: true },
+    });
+    if (pendingDeficiencies.length > 0) {
+      return res.status(400).json({
+        error: "Cannot approve: some deficiencies are not verified",
+        pendingDeficiencies,
+      });
+    }
+  }
 
   // Stage change and its history row are saved together.
   const [application] = await prisma.$transaction([
