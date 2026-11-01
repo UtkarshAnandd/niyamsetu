@@ -150,6 +150,7 @@ export async function evaluate(applicationId: string, asOf?: Date) {
           passed: outcome.passed,
           actualValue: outcome.actual,
           expectedValue: outcome.expected,
+          isPreview: preview,
         },
       });
       results.push({

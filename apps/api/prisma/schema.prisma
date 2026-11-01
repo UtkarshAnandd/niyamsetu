@@ -177,6 +177,8 @@ model RuleCheck {
   passed        Boolean
   actualValue   String
   expectedValue String
+  // true for ADMIN "asOf" previews; ignored by GET /:id/checks.
+  isPreview     Boolean        @default(false)
   checkedAt     DateTime       @default(now())
 
   deficiencies Deficiency[]

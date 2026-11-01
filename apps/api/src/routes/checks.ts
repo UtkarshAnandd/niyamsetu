@@ -44,7 +44,7 @@ router.post("/:id/check", async (req, res) => {
   res.json(result);
 });
 
-// GET /api/applications/:id/checks – latest result per rule code
+// GET /api/applications/:id/checks – latest result per rule code (asOf previews excluded)
 router.get("/:id/checks", async (req, res) => {
   const app = await prisma.application.findUnique({ where: { id: req.params.id } });
   if (!app) {
@@ -55,7 +55,7 @@ router.get("/:id/checks", async (req, res) => {
   }
 
   const checks = await prisma.ruleCheck.findMany({
-    where: { applicationId: app.id },
+    where: { applicationId: app.id, isPreview: false },
     include: { rule: true },
     orderBy: { checkedAt: "desc" },
   });
