@@ -4,6 +4,13 @@ import { Prisma } from "@prisma/client";
 import { MulterError } from "multer";
 import { UploadError } from "./upload";
 
+type BodyParserError = { type: string; status: number; message: string };
+function isBodyParserError(err: unknown): err is BodyParserError {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as Partial<BodyParserError>;
+  return typeof e.type === "string" && typeof e.status === "number" && e.status >= 400 && e.status < 500;
+}
+
 // Last middleware in the chain. Express 5 sends errors from async routes here.
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof ZodError) {
@@ -11,6 +18,11 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
       error: "Validation failed",
       issues: err.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
     });
+  }
+  // express.json() errors: malformed JSON (400) or a body that is too large (413).
+  if (isBodyParserError(err)) {
+    const message = err.type === "entity.parse.failed" ? "Malformed JSON body" : err.message;
+    return res.status(err.status).json({ error: message });
   }
   if (err instanceof MulterError) {
     const message = err.code === "LIMIT_FILE_SIZE" ? "File too large (max 5 MB)" : err.message;
