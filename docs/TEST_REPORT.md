@@ -7,11 +7,10 @@
 
 | Item | Value |
 | --- | --- |
-| Run started | 2026-11-01T19:19:16.688Z |
-| Run finished | 2026-11-01T19:19:26.611Z |
-| Commit tested | `75f65f343586a2fed7797ee0259b4512f2726232` |
+| Run started | 2026-11-02T07:33:45.940Z |
+| Run finished | 2026-11-02T07:33:56.811Z |
+| Commit tested | `8df24624031edcac0f2166c003e8680ad2e73fbd` |
 | Application code (apps/api/src, apps/api/prisma) | identical to the commit above |
-| Other uncommitted files at run time | apps/api/package.json, apps/api/tsconfig.json, apps/api/tests/, docs/ |
 | Database | niyamsetu_test (reset and seeded at start) |
 | Mode | DEMO_MODE=true, DISABLE_CRON=true, API on port 4100 |
 | Node.js | v26.7.0 |
@@ -19,8 +18,8 @@
 
 ## Summary
 
-- Total tests: **164**
-- Passed: **164**
+- Total tests: **177**
+- Passed: **177**
 - Failed: **0**
 
 ## Results per area
@@ -29,11 +28,11 @@
 | --- | ---: | ---: | ---: |
 | 1. 9-step demo flow | 17 | 17 | 0 |
 | 2. RBAC | 47 | 47 | 0 |
-| 3. Rules engine | 22 | 22 | 0 |
+| 3. Rules engine | 25 | 25 | 0 |
 | 4. Deadline engine (injected time) | 6 | 6 | 0 |
 | 5. Evidence upload | 12 | 12 | 0 |
 | 6. Audit log | 18 | 18 | 0 |
-| 7. Validation and error handling | 42 | 42 | 0 |
+| 7. Validation and error handling | 52 | 52 | 0 |
 
 ## Brief metrics
 
@@ -51,7 +50,7 @@ Recipients covered: deficiency owner, owner's manager (escalation), assigned off
 
 ### 3. Deficiency traceability
 
-51 of 51 deficiencies in the test database have a complete chain (100.0%): rule check → exact rule version → CREATE audit row, and for the 6 VERIFIED deficiencies also evidence → verifying officer → verification time.
+53 of 53 deficiencies in the test database have a complete chain (100.0%): rule check → exact rule version → CREATE audit row, and for the 6 VERIFIED deficiencies also evidence → verifying officer → verification time.
 
 Missing links: rule version 0, CREATE audit row 0, verification record 0.
 
