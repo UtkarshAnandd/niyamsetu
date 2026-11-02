@@ -43,7 +43,9 @@ npm run db:reset          # drops and recreates the niyamsetu tables, then seeds
 npm run dev               # http://localhost:4000 (tsx watch)
 ```
 
-`npm run db:seed` re-seeds without dropping tables (it also deletes all existing rows first).
+`npm run demo:reset` returns the dev database to the fictional demo state: it re-seeds
+`niyamsetu` (deleting all rows first) and empties `uploads/` (keeping `.gitkeep`), so seed data
+and evidence files never get out of step. Use it before every demo rehearsal.
 `npm test` runs the end-to-end suite against a separate `niyamsetu_test` database.
 
 ## Demo logins
@@ -73,7 +75,10 @@ INSTITUTION user must log in again after `POST /users/link-institution`.
 | OFFICER | only applications where `assignedOfficerId` is them; may **change** only those |
 | INSTITUTION | only applications of their own institution (`institutionId` in the token) |
 
-**Error shapes.**
+**Error shape.** Every error response is a JSON object `{ error, issues?, …extra }`: `error` is
+always a human-readable string, `issues` is present only for validation errors, and a few
+responses add documented extra fields (`allowed` on an invalid stage transition,
+`pendingDeficiencies` when approval is blocked, `fields` on a duplicate).
 
 | Status | When | Body |
 | --- | --- | --- |
@@ -82,10 +87,11 @@ INSTITUTION user must log in again after `POST /users/link-institution`.
 | 400 | business rule (bad transition, wrong file type, …) | `{ "error": "…" }` (+ extra fields where noted) |
 | 401 | missing/invalid/expired token, wrong password | `{ "error": "…" }` |
 | 403 | wrong role or not your record | `{ "error": "…" }` |
-| 404 | unknown id | `{ "error": "…" }` |
+| 404 | unknown id, or unknown route | `{ "error": "…" }` (unknown route: `{ "error": "Not found" }`) |
 | 409 | unique field already exists (institution `code`) | `{ "error": "Already exists", "fields": ["code"] }` |
 | 413 | JSON body larger than express's default limit | `{ "error": "request entity too large" }` |
 | 500 | unexpected server error | `{ "error": "Internal server error" }` |
+| 503 | database unavailable (down or restarting) – retry | `{ "error": "Database unavailable, try again" }` |
 
 Real response as admin1 → **400**
 
@@ -140,22 +146,33 @@ Real response as admin1 → **404**
 }
 ```
 
+Real response → **404**
+
+```json
+{
+  "error": "Not found"
+}
+```
+
 **Dates** are ISO 8601 strings in UTC. Request date fields accept anything `new Date()` parses
 (e.g. `"2026-11-05"` or `"2026-11-05T10:00:00Z"`).
 
-**Pagination – `?limit`.** Today only these three endpoints take `?limit=` (integer, **default 50,
-min 1, max 200**; outside that range → 400) and return a `total` count alongside the rows:
+**Pagination – `?limit`.** Every list endpoint takes `?limit=` (integer, **default 50, min 1,
+max 200**; outside that range → 400) and returns `total` – the number of rows matching the
+request before the limit – alongside the rows:
 
-| Endpoint | Order |
-| --- | --- |
-| `GET /api/audit` | newest first |
-| `GET /api/applications/:id/audit` | newest first |
-| `GET /api/dashboard/overdue` | most overdue first |
+| Endpoint | Rows key | Order |
+| --- | --- | --- |
+| `GET /api/institutions` | `institutions` | by `code` |
+| `GET /api/applications` | `applications` | newest `submittedAt` first |
+| `GET /api/deficiencies` | `deficiencies` | by `dueDate`, then `createdAt` |
+| `GET /api/alerts` | `alerts` | newest first |
+| `GET /api/alerts/history` | `alerts` | newest first |
+| `GET /api/audit` | `audit` | newest first |
+| `GET /api/applications/:id/audit` | `audit` | newest first |
+| `GET /api/dashboard/overdue` | `overdue` | most overdue first |
 
-Other list endpoints currently have no `limit` parameter: `GET /alerts` returns at most the
-100 newest, `GET /alerts/history` at most the 500 newest, and the rest (`/institutions`,
-`/applications`, `/deficiencies`) return every row the user may see. **The planned hardening pass
-will add the same `?limit` rule (default 50, max 200) to every list endpoint.**
+There is no offset/cursor yet: a list longer than 200 rows shows the first 200 and `total`.
 
 **DEMO_MODE.** With `DEMO_MODE=true` (the default in `.env.example`) all deadlines are counted in
 **minutes instead of days**:
@@ -172,6 +189,10 @@ DEMO_MODE `hoursOverdue` stays at `0` for the first minutes, so **the UI should 
 
 **Deadline engine.** A node-cron job runs every minute (unless `DISABLE_CRON=true`).
 `POST /admin/run-deadline-check` runs the same logic on demand (fallback button for the demo).
+
+**Database restarts.** The API keeps running if PostgreSQL restarts. While the database is
+down, requests get 503; the first requests after it is back succeed (reads that hit a stale
+pooled connection are retried automatically).
 
 **Audit.** Every create, update and status change writes an AuditLog row (including logins and
 system actions by the deadline engine, shown as actor "System"). Alert read receipts and GET
@@ -197,13 +218,13 @@ Real response → **200**
 {
   "token": "eyJhbGciOi…",
   "user": {
-    "id": "cmvy5x9b80019mvazika6aolz",
+    "id": "cmvyx0wu00019y68e5fz7mubr",
     "email": "admin1@niyamsetu.test",
     "name": "Asha Admin (fictional)",
     "role": "ADMIN",
     "managerId": null,
     "institutionId": null,
-    "createdAt": "2026-11-01T18:27:42.308Z"
+    "createdAt": "2026-11-02T07:06:22.392Z"
   }
 }
 ```
@@ -220,12 +241,12 @@ Real response as officer1 → **200**
 ```json
 {
   "user": {
-    "id": "cmvy5x9be001cmvaz81z3xcw9",
+    "id": "cmvyx0wu5001cy68e4may19od",
     "email": "officer1@niyamsetu.test",
     "name": "Chitra Officer (fictional)",
     "role": "OFFICER",
     "institutionId": null,
-    "managerId": "cmvy5x9b80019mvazika6aolz"
+    "managerId": "cmvyx0wu00019y68e5fz7mubr"
   }
 }
 ```
@@ -249,7 +270,7 @@ Real response as admin1 → **201**
 ```json
 {
   "institution": {
-    "id": "cmvywjrtz0004y6vy43mw7cey",
+    "id": "cmvyxk7hp0004y69xi7ip9wfs",
     "code": "FIC-012",
     "name": "Mahanadi Delta Institute of Technology",
     "state": "Odisha",
@@ -260,23 +281,23 @@ Real response as admin1 → **201**
     "builtUpAreaSqm": 2600,
     "landAreaAcres": 3,
     "labCount": 7,
-    "createdAt": "2026-11-02T06:53:02.759Z",
+    "createdAt": "2026-11-02T07:21:22.670Z",
     "documents": [
       {
-        "id": "cmvywjrtz0005y6vy1fclmbwb",
-        "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+        "id": "cmvyxk7hp0005y69xs7idm1kx",
+        "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
         "docType": "LAND_DEED",
         "fileName": "FIC-012-land-deed.pdf",
         "expiryDate": null,
-        "uploadedAt": "2026-11-02T06:53:02.759Z"
+        "uploadedAt": "2026-11-02T07:21:22.670Z"
       },
       {
-        "id": "cmvywjrtz0006y6vym0le9ltf",
-        "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+        "id": "cmvyxk7hp0006y69xyznqooxi",
+        "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
         "docType": "BUILDING_PLAN",
         "fileName": "FIC-012-building-plan.pdf",
         "expiryDate": null,
-        "uploadedAt": "2026-11-02T06:53:02.759Z"
+        "uploadedAt": "2026-11-02T07:21:22.670Z"
       },
       {
         "…": "1 more items trimmed"
@@ -291,18 +312,19 @@ Real response as admin1 → **201**
 | | |
 | --- | --- |
 | Roles | ADMIN, OFFICER: all institutions · INSTITUTION: only its own (empty list if not linked) |
-| Query | none |
-| Errors | 401 |
+| Query | `limit` integer, default 50, min 1, max 200 |
+| Errors | 400 validation · 401 |
 
-Ordered by `code`, each with its `documents`.
+Ordered by `code`, each with its `documents`, plus `total`.
 
 Real response as inst3 → **200**
 
 ```json
 {
+  "total": 1,
   "institutions": [
     {
-      "id": "cmvywjrtz0004y6vy43mw7cey",
+      "id": "cmvyxk7hp0004y69xi7ip9wfs",
       "code": "FIC-012",
       "name": "Mahanadi Delta Institute of Technology",
       "state": "Odisha",
@@ -313,23 +335,23 @@ Real response as inst3 → **200**
       "builtUpAreaSqm": 2600,
       "landAreaAcres": 3,
       "labCount": 7,
-      "createdAt": "2026-11-02T06:53:02.759Z",
+      "createdAt": "2026-11-02T07:21:22.670Z",
       "documents": [
         {
-          "id": "cmvywjrtz0005y6vy1fclmbwb",
-          "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+          "id": "cmvyxk7hp0005y69xs7idm1kx",
+          "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
           "docType": "LAND_DEED",
           "fileName": "FIC-012-land-deed.pdf",
           "expiryDate": null,
-          "uploadedAt": "2026-11-02T06:53:02.759Z"
+          "uploadedAt": "2026-11-02T07:21:22.670Z"
         },
         {
-          "id": "cmvywjrtz0006y6vym0le9ltf",
-          "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+          "id": "cmvyxk7hp0006y69xyznqooxi",
+          "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
           "docType": "BUILDING_PLAN",
           "fileName": "FIC-012-building-plan.pdf",
           "expiryDate": null,
-          "uploadedAt": "2026-11-02T06:53:02.759Z"
+          "uploadedAt": "2026-11-02T07:21:22.670Z"
         },
         {
           "…": "1 more items trimmed"
@@ -355,11 +377,11 @@ Real response as admin1 → **200**
 ```json
 {
   "user": {
-    "id": "cmvy5x9bn001kmvazqr9ccixt",
+    "id": "cmvyx0wub001ky68erlljimmq",
     "email": "inst3@niyamsetu.test",
     "name": "Gauri Registrar (fictional)",
     "role": "INSTITUTION",
-    "institutionId": "cmvywjrtz0004y6vy43mw7cey"
+    "institutionId": "cmvyxk7hp0004y69xi7ip9wfs"
   }
 }
 ```
@@ -383,16 +405,16 @@ Real response as inst3 → **201**
 ```json
 {
   "application": {
-    "id": "cmvywjry5000fy6vymfy0dzv3",
-    "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+    "id": "cmvyxk7mf000fy69xytjw6bex",
+    "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
     "programme": "B.Tech Computer Science",
     "academicYear": "2027-28",
     "stage": "SUBMITTED",
     "assignedOfficerId": null,
     "expertVisitDate": null,
     "expertNames": null,
-    "submittedAt": "2026-11-02T06:53:02.910Z",
-    "updatedAt": "2026-11-02T06:53:02.910Z"
+    "submittedAt": "2026-11-02T07:21:22.839Z",
+    "updatedAt": "2026-11-02T07:21:22.839Z"
   }
 }
 ```
@@ -402,62 +424,63 @@ Real response as inst3 → **201**
 | | |
 | --- | --- |
 | Roles | any; ADMIN all, OFFICER assigned to them, INSTITUTION own institution |
-| Query | none |
-| Errors | 401 |
+| Query | `limit` integer, default 50, min 1, max 200 |
+| Errors | 400 validation · 401 |
 
-Newest `submittedAt` first; includes `institution { id, code, name }` and `assignedOfficer { id, name, email }`.
+Newest `submittedAt` first, plus `total`; includes `institution { id, code, name }` and `assignedOfficer { id, name, email }`.
 
 Real response as officer1 → **200**
 
 ```json
 {
+  "total": 4,
   "applications": [
     {
-      "id": "cmvywjry5000fy6vymfy0dzv3",
-      "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+      "id": "cmvyxk7mf000fy69xytjw6bex",
+      "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
       "programme": "B.Tech Computer Science",
       "academicYear": "2027-28",
       "stage": "SUBMITTED",
-      "assignedOfficerId": "cmvy5x9be001cmvaz81z3xcw9",
+      "assignedOfficerId": "cmvyx0wu5001cy68e4may19od",
       "expertVisitDate": null,
       "expertNames": null,
-      "submittedAt": "2026-11-02T06:53:02.910Z",
-      "updatedAt": "2026-11-02T06:53:02.925Z",
+      "submittedAt": "2026-11-02T07:21:22.839Z",
+      "updatedAt": "2026-11-02T07:21:22.862Z",
       "institution": {
-        "id": "cmvywjrtz0004y6vy43mw7cey",
+        "id": "cmvyxk7hp0004y69xi7ip9wfs",
         "code": "FIC-012",
         "name": "Mahanadi Delta Institute of Technology"
       },
       "assignedOfficer": {
-        "id": "cmvy5x9be001cmvaz81z3xcw9",
+        "id": "cmvyx0wu5001cy68e4may19od",
         "name": "Chitra Officer (fictional)",
         "email": "officer1@niyamsetu.test"
       }
     },
     {
-      "id": "cmvy5xapj001xmvb3ffubidtw",
-      "institutionId": "cmvy5xak2001mmvb3gp2w1oso",
+      "id": "cmvyx0wuc001my68eoeadocrc",
+      "institutionId": "cmvyx0wpy0006y68evavyiic7",
       "programme": "B.Tech Computer Science",
       "academicYear": "2027-28",
-      "stage": "SCRUTINY",
-      "assignedOfficerId": "cmvy5x9be001cmvaz81z3xcw9",
+      "stage": "SUBMITTED",
+      "assignedOfficerId": "cmvyx0wu5001cy68e4may19od",
       "expertVisitDate": null,
       "expertNames": null,
-      "submittedAt": "2026-11-01T18:27:44.120Z",
-      "updatedAt": "2026-11-01T18:27:44.239Z",
+      "submittedAt": "2026-10-28T07:06:22.010Z",
+      "updatedAt": "2026-11-02T07:06:22.405Z",
       "institution": {
-        "id": "cmvy5xak2001mmvb3gp2w1oso",
-        "code": "FIC-011",
-        "name": "Kosi Plains Institute of Engineering"
+        "id": "cmvyx0wpy0006y68evavyiic7",
+        "code": "FIC-001",
+        "name": "Vindhyachal Institute of Technology"
       },
       "assignedOfficer": {
-        "id": "cmvy5x9be001cmvaz81z3xcw9",
+        "id": "cmvyx0wu5001cy68e4may19od",
         "name": "Chitra Officer (fictional)",
         "email": "officer1@niyamsetu.test"
       }
     },
     {
-      "…": "4 more items trimmed"
+      "…": "2 more items trimmed"
     }
   ]
 }
@@ -478,18 +501,18 @@ Real response as inst3 → **200**
 ```json
 {
   "application": {
-    "id": "cmvywjry5000fy6vymfy0dzv3",
-    "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+    "id": "cmvyxk7mf000fy69xytjw6bex",
+    "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
     "programme": "B.Tech Computer Science",
     "academicYear": "2027-28",
     "stage": "APPROVED",
-    "assignedOfficerId": "cmvy5x9be001cmvaz81z3xcw9",
-    "expertVisitDate": "2026-11-05T06:56:06.510Z",
+    "assignedOfficerId": "cmvyx0wu5001cy68e4may19od",
+    "expertVisitDate": "2026-11-05T07:24:26.406Z",
     "expertNames": "Dr. Kalpana Example (fictional)",
-    "submittedAt": "2026-11-02T06:53:02.910Z",
-    "updatedAt": "2026-11-02T06:56:06.625Z",
+    "submittedAt": "2026-11-02T07:21:22.839Z",
+    "updatedAt": "2026-11-02T07:24:26.554Z",
     "institution": {
-      "id": "cmvywjrtz0004y6vy43mw7cey",
+      "id": "cmvyxk7hp0004y69xi7ip9wfs",
       "code": "FIC-012",
       "name": "Mahanadi Delta Institute of Technology",
       "state": "Odisha",
@@ -500,38 +523,38 @@ Real response as inst3 → **200**
       "builtUpAreaSqm": 2600,
       "landAreaAcres": 3,
       "labCount": 7,
-      "createdAt": "2026-11-02T06:53:02.759Z"
+      "createdAt": "2026-11-02T07:21:22.670Z"
     },
     "assignedOfficer": {
-      "id": "cmvy5x9be001cmvaz81z3xcw9",
+      "id": "cmvyx0wu5001cy68e4may19od",
       "name": "Chitra Officer (fictional)",
       "email": "officer1@niyamsetu.test"
     },
     "stageHistory": [
       {
-        "id": "cmvywjry5000hy6vy633apbi5",
-        "applicationId": "cmvywjry5000fy6vymfy0dzv3",
+        "id": "cmvyxk7mf000hy69xrq5f7nn0",
+        "applicationId": "cmvyxk7mf000fy69xytjw6bex",
         "fromStage": null,
         "toStage": "SUBMITTED",
-        "changedById": "cmvy5x9bn001kmvazqr9ccixt",
+        "changedById": "cmvyx0wub001ky68erlljimmq",
         "remark": null,
-        "changedAt": "2026-11-02T06:53:02.910Z",
+        "changedAt": "2026-11-02T07:21:22.839Z",
         "changedBy": {
-          "id": "cmvy5x9bn001kmvazqr9ccixt",
+          "id": "cmvyx0wub001ky68erlljimmq",
           "name": "Gauri Registrar (fictional)",
           "role": "INSTITUTION"
         }
       },
       {
-        "id": "cmvywnplx0037y6vytr2qw4o1",
-        "applicationId": "cmvywjry5000fy6vymfy0dzv3",
+        "id": "cmvyxo5970027y69x3a5z6l4c",
+        "applicationId": "cmvyxk7mf000fy69xytjw6bex",
         "fromStage": "SUBMITTED",
         "toStage": "SCRUTINY",
-        "changedById": "cmvy5x9be001cmvaz81z3xcw9",
+        "changedById": "cmvyx0wu5001cy68e4may19od",
         "remark": "Documents received",
-        "changedAt": "2026-11-02T06:56:06.501Z",
+        "changedAt": "2026-11-02T07:24:26.394Z",
         "changedBy": {
-          "id": "cmvy5x9be001cmvaz81z3xcw9",
+          "id": "cmvyx0wu5001cy68e4may19od",
           "name": "Chitra Officer (fictional)",
           "role": "OFFICER"
         }
@@ -557,16 +580,16 @@ Real response as admin1 → **200**
 ```json
 {
   "application": {
-    "id": "cmvywjry5000fy6vymfy0dzv3",
-    "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+    "id": "cmvyxk7mf000fy69xytjw6bex",
+    "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
     "programme": "B.Tech Computer Science",
     "academicYear": "2027-28",
     "stage": "SUBMITTED",
-    "assignedOfficerId": "cmvy5x9be001cmvaz81z3xcw9",
+    "assignedOfficerId": "cmvyx0wu5001cy68e4may19od",
     "expertVisitDate": null,
     "expertNames": null,
-    "submittedAt": "2026-11-02T06:53:02.910Z",
-    "updatedAt": "2026-11-02T06:53:02.925Z"
+    "submittedAt": "2026-11-02T07:21:22.839Z",
+    "updatedAt": "2026-11-02T07:21:22.862Z"
   }
 }
 ```
@@ -598,16 +621,16 @@ Real response as officer1 → **200**
 ```json
 {
   "application": {
-    "id": "cmvywjry5000fy6vymfy0dzv3",
-    "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+    "id": "cmvyxk7mf000fy69xytjw6bex",
+    "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
     "programme": "B.Tech Computer Science",
     "academicYear": "2027-28",
     "stage": "SCRUTINY",
-    "assignedOfficerId": "cmvy5x9be001cmvaz81z3xcw9",
+    "assignedOfficerId": "cmvyx0wu5001cy68e4may19od",
     "expertVisitDate": null,
     "expertNames": null,
-    "submittedAt": "2026-11-02T06:53:02.910Z",
-    "updatedAt": "2026-11-02T06:56:06.501Z"
+    "submittedAt": "2026-11-02T07:21:22.839Z",
+    "updatedAt": "2026-11-02T07:24:26.394Z"
   }
 }
 ```
@@ -631,10 +654,10 @@ Real response as officer1 → **400**
   "error": "Cannot approve: some deficiencies are not verified",
   "pendingDeficiencies": [
     {
-      "id": "cmvywjs09000xy6vyh1punjvj",
+      "id": "cmvyxk7oe000xy69xbt4vr6b3",
       "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
       "status": "EVIDENCE_SUBMITTED",
-      "dueDate": "2026-11-02T06:54:03.037Z"
+      "dueDate": "2026-11-02T07:22:22.947Z"
     }
   ]
 }
@@ -653,16 +676,16 @@ Real response as officer1 → **200**
 ```json
 {
   "application": {
-    "id": "cmvywjry5000fy6vymfy0dzv3",
-    "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+    "id": "cmvyxk7mf000fy69xytjw6bex",
+    "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
     "programme": "B.Tech Computer Science",
     "academicYear": "2027-28",
     "stage": "SCRUTINY",
-    "assignedOfficerId": "cmvy5x9be001cmvaz81z3xcw9",
-    "expertVisitDate": "2026-11-05T06:56:06.510Z",
+    "assignedOfficerId": "cmvyx0wu5001cy68e4may19od",
+    "expertVisitDate": "2026-11-05T07:24:26.406Z",
     "expertNames": "Dr. Kalpana Example (fictional)",
-    "submittedAt": "2026-11-02T06:53:02.910Z",
-    "updatedAt": "2026-11-02T06:56:06.514Z"
+    "submittedAt": "2026-11-02T07:21:22.839Z",
+    "updatedAt": "2026-11-02T07:24:26.413Z"
   }
 }
 ```
@@ -690,8 +713,8 @@ Real response as inst3 → **200**
 
 ```json
 {
-  "applicationId": "cmvywjry5000fy6vymfy0dzv3",
-  "asOf": "2026-11-02T06:53:02.910Z",
+  "applicationId": "cmvyxk7mf000fy69xytjw6bex",
+  "asOf": "2026-11-02T07:21:22.839Z",
   "preview": false,
   "results": [
     {
@@ -701,7 +724,7 @@ Real response as inst3 → **200**
       "passed": true,
       "actual": "16:1",
       "expected": "max 20:1",
-      "ruleCheckId": "cmvywjs00000ny6vyzci1g12b"
+      "ruleCheckId": "cmvyxk7o4000ny69xujv423dv"
     },
     {
       "code": "MIN_BUILTUP_AREA",
@@ -710,7 +733,7 @@ Real response as inst3 → **200**
       "passed": true,
       "actual": "10.8 sqm/student",
       "expected": "min 10 sqm/student",
-      "ruleCheckId": "cmvywjs03000py6vy43b1kogc"
+      "ruleCheckId": "cmvyxk7o7000py69x1dy77x2l"
     },
     {
       "…": "3 more items trimmed"
@@ -718,17 +741,17 @@ Real response as inst3 → **200**
   ],
   "deficienciesCreated": [
     {
-      "id": "cmvywjs09000xy6vyh1punjvj",
-      "applicationId": "cmvywjry5000fy6vymfy0dzv3",
-      "ruleCheckId": "cmvywjs05000vy6vyi0pi0kdg",
+      "id": "cmvyxk7oe000xy69xbt4vr6b3",
+      "applicationId": "cmvyxk7mf000fy69xytjw6bex",
+      "ruleCheckId": "cmvyxk7o9000vy69xl8fql4h6",
       "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
       "evidenceNeeded": "Upload the missing or renewed document with a valid expiry date",
-      "ownerId": "cmvy5x9bn001kmvazqr9ccixt",
-      "dueDate": "2026-11-02T07:03:02.985Z",
+      "ownerId": "cmvyx0wub001ky68erlljimmq",
+      "dueDate": "2026-11-02T07:31:22.909Z",
       "status": "OPEN",
       "escalatedAt": null,
-      "createdAt": "2026-11-02T06:53:02.986Z",
-      "updatedAt": "2026-11-02T06:53:02.986Z"
+      "createdAt": "2026-11-02T07:21:22.910Z",
+      "updatedAt": "2026-11-02T07:21:22.910Z"
     }
   ],
   "deficienciesAlreadyOpen": [],
@@ -744,7 +767,7 @@ Real response as admin1 → **200**
 
 ```json
 {
-  "applicationId": "cmvywjry5000fy6vymfy0dzv3",
+  "applicationId": "cmvyxk7mf000fy69xytjw6bex",
   "asOf": "2026-06-01T00:00:00.000Z",
   "preview": true,
   "deficienciesSkipped": "asOf preview",
@@ -756,7 +779,7 @@ Real response as admin1 → **200**
       "passed": false,
       "actual": "16:1",
       "expected": "max 15:1",
-      "ruleCheckId": "cmvywjs0r0013y6vy0ghx0y5k"
+      "ruleCheckId": "cmvyxk7ou0013y69xyyh2d6it"
     },
     {
       "code": "MIN_BUILTUP_AREA",
@@ -765,7 +788,7 @@ Real response as admin1 → **200**
       "passed": true,
       "actual": "10.8 sqm/student",
       "expected": "min 10 sqm/student",
-      "ruleCheckId": "cmvywjs0t0015y6vygse3wdjx"
+      "ruleCheckId": "cmvyxk7ow0015y69xcjzae1t7"
     },
     {
       "…": "3 more items trimmed"
@@ -790,7 +813,7 @@ Real response as inst3 → **200**
 
 ```json
 {
-  "applicationId": "cmvywjry5000fy6vymfy0dzv3",
+  "applicationId": "cmvyxk7mf000fy69xytjw6bex",
   "checks": [
     {
       "code": "MIN_LABS",
@@ -799,7 +822,7 @@ Real response as inst3 → **200**
       "passed": true,
       "actual": "7 labs",
       "expected": "min 6 labs",
-      "checkedAt": "2026-11-02T06:53:02.981Z"
+      "checkedAt": "2026-11-02T07:21:22.905Z"
     },
     {
       "code": "REQUIRED_DOCUMENTS",
@@ -808,7 +831,7 @@ Real response as inst3 → **200**
       "passed": false,
       "actual": "FIRE_NOC expired 2026-10-03",
       "expected": "LAND_DEED, BUILDING_PLAN, FIRE_NOC present and valid",
-      "checkedAt": "2026-11-02T06:53:02.981Z"
+      "checkedAt": "2026-11-02T07:21:22.905Z"
     },
     {
       "…": "3 more items trimmed"
@@ -826,36 +849,37 @@ Real response as inst3 → **200**
 | | |
 | --- | --- |
 | Roles | any; ADMIN all, OFFICER on applications assigned to them, INSTITUTION own institution |
-| Query | `applicationId` optional string · `status` optional, one of `OPEN` `EVIDENCE_SUBMITTED` `VERIFIED` `REJECTED` `OVERDUE` |
+| Query | `applicationId` optional string · `status` optional, one of `OPEN` `EVIDENCE_SUBMITTED` `VERIFIED` `REJECTED` `OVERDUE` · `limit` integer, default 50, min 1, max 200 |
 | Errors | 400 validation · 401 |
 
-Ordered by `dueDate`, then `createdAt`; includes `owner`, `application { id, programme, institution { code, name } }` and `ruleCheck.rule { code, version }`.
+Ordered by `dueDate`, then `createdAt`, plus `total`; includes `owner`, `application { id, programme, institution { code, name } }` and `ruleCheck.rule { code, version }`.
 
 Real response as inst3 → **200**
 
 ```json
 {
+  "total": 1,
   "deficiencies": [
     {
-      "id": "cmvywjs09000xy6vyh1punjvj",
-      "applicationId": "cmvywjry5000fy6vymfy0dzv3",
-      "ruleCheckId": "cmvywjs05000vy6vyi0pi0kdg",
+      "id": "cmvyxk7oe000xy69xbt4vr6b3",
+      "applicationId": "cmvyxk7mf000fy69xytjw6bex",
+      "ruleCheckId": "cmvyxk7o9000vy69xl8fql4h6",
       "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
       "evidenceNeeded": "Upload the missing or renewed document with a valid expiry date",
-      "ownerId": "cmvy5x9bn001kmvazqr9ccixt",
-      "dueDate": "2026-11-02T07:03:02.985Z",
+      "ownerId": "cmvyx0wub001ky68erlljimmq",
+      "dueDate": "2026-11-02T07:31:22.909Z",
       "status": "OPEN",
       "escalatedAt": null,
-      "createdAt": "2026-11-02T06:53:02.986Z",
-      "updatedAt": "2026-11-02T06:53:02.986Z",
+      "createdAt": "2026-11-02T07:21:22.910Z",
+      "updatedAt": "2026-11-02T07:21:22.910Z",
       "owner": {
-        "id": "cmvy5x9bn001kmvazqr9ccixt",
+        "id": "cmvyx0wub001ky68erlljimmq",
         "name": "Gauri Registrar (fictional)",
         "email": "inst3@niyamsetu.test",
         "role": "INSTITUTION"
       },
       "application": {
-        "id": "cmvywjry5000fy6vymfy0dzv3",
+        "id": "cmvyxk7mf000fy69xytjw6bex",
         "programme": "B.Tech Computer Science",
         "institution": {
           "code": "FIC-012",
@@ -889,28 +913,28 @@ Real response as inst3 → **200**
 ```json
 {
   "deficiency": {
-    "id": "cmvywjs09000xy6vyh1punjvj",
-    "applicationId": "cmvywjry5000fy6vymfy0dzv3",
-    "ruleCheckId": "cmvywjs05000vy6vyi0pi0kdg",
+    "id": "cmvyxk7oe000xy69xbt4vr6b3",
+    "applicationId": "cmvyxk7mf000fy69xytjw6bex",
+    "ruleCheckId": "cmvyxk7o9000vy69xl8fql4h6",
     "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
     "evidenceNeeded": "Upload the missing or renewed document with a valid expiry date",
-    "ownerId": "cmvy5x9bn001kmvazqr9ccixt",
-    "dueDate": "2026-11-02T07:06:06.556Z",
+    "ownerId": "cmvyx0wub001ky68erlljimmq",
+    "dueDate": "2026-11-02T07:34:26.467Z",
     "status": "REJECTED",
     "escalatedAt": null,
-    "createdAt": "2026-11-02T06:53:02.986Z",
-    "updatedAt": "2026-11-02T06:56:06.557Z",
+    "createdAt": "2026-11-02T07:21:22.910Z",
+    "updatedAt": "2026-11-02T07:24:26.468Z",
     "ruleCheck": {
-      "id": "cmvywjs05000vy6vyi0pi0kdg",
-      "applicationId": "cmvywjry5000fy6vymfy0dzv3",
-      "ruleId": "cmvy5x9740005mvazctigonwq",
+      "id": "cmvyxk7o9000vy69xl8fql4h6",
+      "applicationId": "cmvyxk7mf000fy69xytjw6bex",
+      "ruleId": "cmvyx0wpu0005y68em5t9zv8q",
       "passed": false,
       "actualValue": "FIRE_NOC expired 2026-10-03",
       "expectedValue": "LAND_DEED, BUILDING_PLAN, FIRE_NOC present and valid",
       "isPreview": false,
-      "checkedAt": "2026-11-02T06:53:02.981Z",
+      "checkedAt": "2026-11-02T07:21:22.905Z",
       "rule": {
-        "id": "cmvy5x9740005mvazctigonwq",
+        "id": "cmvyx0wpu0005y68em5t9zv8q",
         "code": "REQUIRED_DOCUMENTS",
         "version": 1,
         "title": "Mandatory documents present and not expired",
@@ -927,52 +951,52 @@ Real response as inst3 → **200**
           ],
           "evidenceNeeded": "Upload the missing or renewed document with a valid expiry date"
         },
-        "createdAt": "2026-11-01T18:27:42.160Z"
+        "createdAt": "2026-11-02T07:06:22.243Z"
       }
     },
     "application": {
-      "id": "cmvywjry5000fy6vymfy0dzv3",
-      "institutionId": "cmvywjrtz0004y6vy43mw7cey",
+      "id": "cmvyxk7mf000fy69xytjw6bex",
+      "institutionId": "cmvyxk7hp0004y69xi7ip9wfs",
       "programme": "B.Tech Computer Science",
       "academicYear": "2027-28",
       "stage": "COMMITTEE",
-      "assignedOfficerId": "cmvy5x9be001cmvaz81z3xcw9",
-      "expertVisitDate": "2026-11-05T06:56:06.510Z",
+      "assignedOfficerId": "cmvyx0wu5001cy68e4may19od",
+      "expertVisitDate": "2026-11-05T07:24:26.406Z",
       "expertNames": "Dr. Kalpana Example (fictional)",
-      "submittedAt": "2026-11-02T06:53:02.910Z",
-      "updatedAt": "2026-11-02T06:56:06.534Z",
+      "submittedAt": "2026-11-02T07:21:22.839Z",
+      "updatedAt": "2026-11-02T07:24:26.440Z",
       "institution": {
-        "id": "cmvywjrtz0004y6vy43mw7cey",
+        "id": "cmvyxk7hp0004y69xi7ip9wfs",
         "code": "FIC-012",
         "name": "Mahanadi Delta Institute of Technology"
       },
       "assignedOfficer": {
-        "id": "cmvy5x9be001cmvaz81z3xcw9",
+        "id": "cmvyx0wu5001cy68e4may19od",
         "name": "Chitra Officer (fictional)",
         "email": "officer1@niyamsetu.test"
       }
     },
     "owner": {
-      "id": "cmvy5x9bn001kmvazqr9ccixt",
+      "id": "cmvyx0wub001ky68erlljimmq",
       "name": "Gauri Registrar (fictional)",
       "email": "inst3@niyamsetu.test",
       "role": "INSTITUTION"
     },
     "evidence": [
       {
-        "id": "cmvywnpl0002xy6vyagv27po7",
-        "deficiencyId": "cmvywjs09000xy6vyh1punjvj",
-        "uploadedById": "cmvy5x9bn001kmvazqr9ccixt",
+        "id": "cmvyxo57u001xy69xqunn5o17",
+        "deficiencyId": "cmvyxk7oe000xy69xbt4vr6b3",
+        "uploadedById": "cmvyx0wub001ky68erlljimmq",
         "fileName": "fire-noc-receipt.pdf",
-        "filePath": "1793602566459-450dbcf4-fire-noc-receipt.pdf",
+        "filePath": "1793604266335-dcef0125-fire-noc-receipt.pdf",
         "mimeType": "application/pdf",
         "note": "Renewal receipt (fictional)",
         "verifiedById": null,
         "verifiedAt": null,
         "reviewRemark": "Receipt only – upload the issued Fire NOC",
-        "uploadedAt": "2026-11-02T06:56:06.467Z",
+        "uploadedAt": "2026-11-02T07:24:26.344Z",
         "uploadedBy": {
-          "id": "cmvy5x9bn001kmvazqr9ccixt",
+          "id": "cmvyx0wub001ky68erlljimmq",
           "name": "Gauri Registrar (fictional)"
         },
         "verifiedBy": null
@@ -999,17 +1023,17 @@ Real response as officer1 → **200**
 ```json
 {
   "deficiency": {
-    "id": "cmvywjs09000xy6vyh1punjvj",
-    "applicationId": "cmvywjry5000fy6vymfy0dzv3",
-    "ruleCheckId": "cmvywjs05000vy6vyi0pi0kdg",
+    "id": "cmvyxk7oe000xy69xbt4vr6b3",
+    "applicationId": "cmvyxk7mf000fy69xytjw6bex",
+    "ruleCheckId": "cmvyxk7o9000vy69xl8fql4h6",
     "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
     "evidenceNeeded": "Upload the missing or renewed document with a valid expiry date",
-    "ownerId": "cmvy5x9bn001kmvazqr9ccixt",
-    "dueDate": "2026-11-02T06:54:03.037Z",
+    "ownerId": "cmvyx0wub001ky68erlljimmq",
+    "dueDate": "2026-11-02T07:22:22.947Z",
     "status": "OPEN",
     "escalatedAt": null,
-    "createdAt": "2026-11-02T06:53:02.986Z",
-    "updatedAt": "2026-11-02T06:53:03.042Z"
+    "createdAt": "2026-11-02T07:21:22.910Z",
+    "updatedAt": "2026-11-02T07:21:22.950Z"
   }
 }
 ```
@@ -1045,7 +1069,7 @@ Real response as admin1 → **200**
 
 ```json
 {
-  "ranAt": "2026-11-02T06:56:06.386Z",
+  "ranAt": "2026-11-02T07:24:26.235Z",
   "dueSoon": 0,
   "overdue": 0,
   "escalated": 1,
@@ -1053,9 +1077,9 @@ Real response as admin1 → **200**
   "details": [
     {
       "kind": "ESCALATION",
-      "deficiencyId": "cmvywjs09000xy6vyh1punjvj",
+      "deficiencyId": "cmvyxk7oe000xy69xbt4vr6b3",
       "alertedUserIds": [
-        "cmvy5x9be001cmvaz81z3xcw9"
+        "cmvyx0wu5001cy68e4may19od"
       ]
     }
   ]
@@ -1085,30 +1109,30 @@ Real response as inst3 → **201**
 ```json
 {
   "evidence": {
-    "id": "cmvywnpl0002xy6vyagv27po7",
-    "deficiencyId": "cmvywjs09000xy6vyh1punjvj",
-    "uploadedById": "cmvy5x9bn001kmvazqr9ccixt",
+    "id": "cmvyxo57u001xy69xqunn5o17",
+    "deficiencyId": "cmvyxk7oe000xy69xbt4vr6b3",
+    "uploadedById": "cmvyx0wub001ky68erlljimmq",
     "fileName": "fire-noc-receipt.pdf",
-    "filePath": "1793602566459-450dbcf4-fire-noc-receipt.pdf",
+    "filePath": "1793604266335-dcef0125-fire-noc-receipt.pdf",
     "mimeType": "application/pdf",
     "note": "Renewal receipt (fictional)",
     "verifiedById": null,
     "verifiedAt": null,
     "reviewRemark": null,
-    "uploadedAt": "2026-11-02T06:56:06.467Z"
+    "uploadedAt": "2026-11-02T07:24:26.344Z"
   },
   "deficiency": {
-    "id": "cmvywjs09000xy6vyh1punjvj",
-    "applicationId": "cmvywjry5000fy6vymfy0dzv3",
-    "ruleCheckId": "cmvywjs05000vy6vyi0pi0kdg",
+    "id": "cmvyxk7oe000xy69xbt4vr6b3",
+    "applicationId": "cmvyxk7mf000fy69xytjw6bex",
+    "ruleCheckId": "cmvyxk7o9000vy69xl8fql4h6",
     "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
     "evidenceNeeded": "Upload the missing or renewed document with a valid expiry date",
-    "ownerId": "cmvy5x9bn001kmvazqr9ccixt",
-    "dueDate": "2026-11-02T06:54:03.037Z",
+    "ownerId": "cmvyx0wub001ky68erlljimmq",
+    "dueDate": "2026-11-02T07:22:22.947Z",
     "status": "EVIDENCE_SUBMITTED",
-    "escalatedAt": "2026-11-02T06:56:06.386Z",
-    "createdAt": "2026-11-02T06:53:02.986Z",
-    "updatedAt": "2026-11-02T06:56:06.467Z"
+    "escalatedAt": "2026-11-02T07:24:26.235Z",
+    "createdAt": "2026-11-02T07:21:22.910Z",
+    "updatedAt": "2026-11-02T07:24:26.344Z"
   },
   "alertedRole": "OFFICER"
 }
@@ -1155,30 +1179,30 @@ Real response as officer1 → **200**
 ```json
 {
   "deficiency": {
-    "id": "cmvywjs09000xy6vyh1punjvj",
-    "applicationId": "cmvywjry5000fy6vymfy0dzv3",
-    "ruleCheckId": "cmvywjs05000vy6vyi0pi0kdg",
+    "id": "cmvyxk7oe000xy69xbt4vr6b3",
+    "applicationId": "cmvyxk7mf000fy69xytjw6bex",
+    "ruleCheckId": "cmvyxk7o9000vy69xl8fql4h6",
     "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
     "evidenceNeeded": "Upload the missing or renewed document with a valid expiry date",
-    "ownerId": "cmvy5x9bn001kmvazqr9ccixt",
-    "dueDate": "2026-11-02T07:06:06.556Z",
+    "ownerId": "cmvyx0wub001ky68erlljimmq",
+    "dueDate": "2026-11-02T07:34:26.467Z",
     "status": "REJECTED",
     "escalatedAt": null,
-    "createdAt": "2026-11-02T06:53:02.986Z",
-    "updatedAt": "2026-11-02T06:56:06.557Z"
+    "createdAt": "2026-11-02T07:21:22.910Z",
+    "updatedAt": "2026-11-02T07:24:26.468Z"
   },
   "evidence": {
-    "id": "cmvywnpl0002xy6vyagv27po7",
-    "deficiencyId": "cmvywjs09000xy6vyh1punjvj",
-    "uploadedById": "cmvy5x9bn001kmvazqr9ccixt",
+    "id": "cmvyxo57u001xy69xqunn5o17",
+    "deficiencyId": "cmvyxk7oe000xy69xbt4vr6b3",
+    "uploadedById": "cmvyx0wub001ky68erlljimmq",
     "fileName": "fire-noc-receipt.pdf",
-    "filePath": "1793602566459-450dbcf4-fire-noc-receipt.pdf",
+    "filePath": "1793604266335-dcef0125-fire-noc-receipt.pdf",
     "mimeType": "application/pdf",
     "note": "Renewal receipt (fictional)",
     "verifiedById": null,
     "verifiedAt": null,
     "reviewRemark": "Receipt only – upload the issued Fire NOC",
-    "uploadedAt": "2026-11-02T06:56:06.467Z"
+    "uploadedAt": "2026-11-02T07:24:26.344Z"
   },
   "ownerAlerted": true
 }
@@ -1189,30 +1213,30 @@ Real response as officer1 → **200**
 ```json
 {
   "deficiency": {
-    "id": "cmvywjs09000xy6vyh1punjvj",
-    "applicationId": "cmvywjry5000fy6vymfy0dzv3",
-    "ruleCheckId": "cmvywjs05000vy6vyi0pi0kdg",
+    "id": "cmvyxk7oe000xy69xbt4vr6b3",
+    "applicationId": "cmvyxk7mf000fy69xytjw6bex",
+    "ruleCheckId": "cmvyxk7o9000vy69xl8fql4h6",
     "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
     "evidenceNeeded": "Upload the missing or renewed document with a valid expiry date",
-    "ownerId": "cmvy5x9bn001kmvazqr9ccixt",
-    "dueDate": "2026-11-02T07:06:06.556Z",
+    "ownerId": "cmvyx0wub001ky68erlljimmq",
+    "dueDate": "2026-11-02T07:34:26.467Z",
     "status": "VERIFIED",
     "escalatedAt": null,
-    "createdAt": "2026-11-02T06:53:02.986Z",
-    "updatedAt": "2026-11-02T06:56:06.609Z"
+    "createdAt": "2026-11-02T07:21:22.910Z",
+    "updatedAt": "2026-11-02T07:24:26.524Z"
   },
   "evidence": {
-    "id": "cmvywnpoe003ty6vyqo5t4rog",
-    "deficiencyId": "cmvywjs09000xy6vyh1punjvj",
-    "uploadedById": "cmvy5x9bn001kmvazqr9ccixt",
+    "id": "cmvyxo5c4002ty69xq2mfxw5y",
+    "deficiencyId": "cmvyxk7oe000xy69xbt4vr6b3",
+    "uploadedById": "cmvyx0wub001ky68erlljimmq",
     "fileName": "fire-noc-renewed.png",
-    "filePath": "1793602566588-1ea736e3-fire-noc-renewed.png",
+    "filePath": "1793604266497-71def5b6-fire-noc-renewed.png",
     "mimeType": "image/png",
     "note": null,
-    "verifiedById": "cmvy5x9be001cmvaz81z3xcw9",
-    "verifiedAt": "2026-11-02T06:56:06.608Z",
+    "verifiedById": "cmvyx0wu5001cy68e4may19od",
+    "verifiedAt": "2026-11-02T07:24:26.523Z",
     "reviewRemark": "Renewed NOC checked",
-    "uploadedAt": "2026-11-02T06:56:06.590Z"
+    "uploadedAt": "2026-11-02T07:24:26.500Z"
   },
   "ownerAlerted": true
 }
@@ -1240,51 +1264,52 @@ All alert endpoints work on **the current user's own alerts** (except the ADMIN 
 | | |
 | --- | --- |
 | Roles | any |
-| Query | `unread` optional, `"true"` or `"false"` (`"true"` → unread only) |
+| Query | `unread` optional, `"true"` or `"false"` (`"true"` → unread only) · `limit` integer, default 50, min 1, max 200 |
 | Errors | 400 validation · 401 |
 
-Newest first, at most 100, plus `unreadCount`; each alert includes a `deficiency` summary or `null`.
+Newest first, plus `total` (matching the `unread` filter) and `unreadCount` (all unread); each alert includes a `deficiency` summary or `null`.
 
 Real response as inst3 → **200**
 
 ```json
 {
-  "unreadCount": 5,
+  "total": 4,
+  "unreadCount": 4,
   "alerts": [
     {
-      "id": "cmvywnpp50047y6vy1lfv1jgo",
-      "userId": "cmvy5x9bn001kmvazqr9ccixt",
-      "deficiencyId": "cmvywjs09000xy6vyh1punjvj",
+      "id": "cmvyxo5d70037y69xog6kl0y1",
+      "userId": "cmvyx0wub001ky68erlljimmq",
+      "deficiencyId": "cmvyxk7oe000xy69xbt4vr6b3",
       "type": "STATUS_CHANGE",
       "message": "Evidence verified for FIC-012: Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1) – Renewed NOC checked",
-      "dedupKey": "VERIFIED:cmvywnpoe003ty6vyqo5t4rog",
+      "dedupKey": "VERIFIED:cmvyxo5c4002ty69xq2mfxw5y",
       "isRead": false,
-      "createdAt": "2026-11-02T06:56:06.617Z",
+      "createdAt": "2026-11-02T07:24:26.539Z",
       "deficiency": {
-        "id": "cmvywjs09000xy6vyh1punjvj",
+        "id": "cmvyxk7oe000xy69xbt4vr6b3",
         "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
         "status": "VERIFIED",
-        "applicationId": "cmvywjry5000fy6vymfy0dzv3"
+        "applicationId": "cmvyxk7mf000fy69xytjw6bex"
       }
     },
     {
-      "id": "cmvywnpnq003py6vy842ei4v5",
-      "userId": "cmvy5x9bn001kmvazqr9ccixt",
-      "deficiencyId": "cmvywjs09000xy6vyh1punjvj",
+      "id": "cmvyxo5bf002py69x01nbdcvj",
+      "userId": "cmvyx0wub001ky68erlljimmq",
+      "deficiencyId": "cmvyxk7oe000xy69xbt4vr6b3",
       "type": "STATUS_CHANGE",
-      "message": "Evidence rejected for FIC-012: Receipt only – upload the issued Fire NOC. Re-upload by 2026-11-02T07:06:06.556Z",
-      "dedupKey": "REJECTED:cmvywnpl0002xy6vyagv27po7",
+      "message": "Evidence rejected for FIC-012: Receipt only – upload the issued Fire NOC. Re-upload by 2026-11-02T07:34:26.467Z",
+      "dedupKey": "REJECTED:cmvyxo57u001xy69xqunn5o17",
       "isRead": false,
-      "createdAt": "2026-11-02T06:56:06.566Z",
+      "createdAt": "2026-11-02T07:24:26.476Z",
       "deficiency": {
-        "id": "cmvywjs09000xy6vyh1punjvj",
+        "id": "cmvyxk7oe000xy69xbt4vr6b3",
         "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
         "status": "VERIFIED",
-        "applicationId": "cmvywjry5000fy6vymfy0dzv3"
+        "applicationId": "cmvyxk7mf000fy69xytjw6bex"
       }
     },
     {
-      "…": "3 more items trimmed"
+      "…": "2 more items trimmed"
     }
   ]
 }
@@ -1302,14 +1327,14 @@ Real response as inst3 → **200**
 ```json
 {
   "alert": {
-    "id": "cmvywnpp50047y6vy1lfv1jgo",
-    "userId": "cmvy5x9bn001kmvazqr9ccixt",
-    "deficiencyId": "cmvywjs09000xy6vyh1punjvj",
+    "id": "cmvyxo5d70037y69xog6kl0y1",
+    "userId": "cmvyx0wub001ky68erlljimmq",
+    "deficiencyId": "cmvyxk7oe000xy69xbt4vr6b3",
     "type": "STATUS_CHANGE",
     "message": "Evidence verified for FIC-012: Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1) – Renewed NOC checked",
-    "dedupKey": "VERIFIED:cmvywnpoe003ty6vyqo5t4rog",
+    "dedupKey": "VERIFIED:cmvyxo5c4002ty69xq2mfxw5y",
     "isRead": true,
-    "createdAt": "2026-11-02T06:56:06.617Z"
+    "createdAt": "2026-11-02T07:24:26.539Z"
   }
 }
 ```
@@ -1325,7 +1350,7 @@ Real response as inst3 → **200**
 
 ```json
 {
-  "updated": 4
+  "updated": 3
 }
 ```
 
@@ -1334,62 +1359,38 @@ Real response as inst3 → **200**
 | | |
 | --- | --- |
 | Roles | ADMIN: every alert · others: own alerts only (`userId` is ignored) |
-| Query | `type` optional (`DUE_SOON` `OVERDUE` `ESCALATION` `STATUS_CHANGE`) · `userId` optional string (ADMIN only) |
+| Query | `type` optional (`DUE_SOON` `OVERDUE` `ESCALATION` `STATUS_CHANGE`) · `userId` optional string (ADMIN only) · `limit` integer, default 50, min 1, max 200 |
 | Errors | 400 validation · 401 |
 
-Newest first, at most 500, each with `user { id, name, email, role }` and a `deficiency` summary.
+Newest first, plus `total`, each with `user { id, name, email, role }` and a `deficiency` summary.
 
 Real response as admin1 → **200**
 
 ```json
 {
+  "total": 1,
   "alerts": [
     {
-      "id": "cmvywnpjg002ty6vyiwklyw1p",
-      "userId": "cmvy5x9be001cmvaz81z3xcw9",
-      "deficiencyId": "cmvywjs09000xy6vyh1punjvj",
+      "id": "cmvyxo55y001ty69xt4bxc4ny",
+      "userId": "cmvyx0wu5001cy68e4may19od",
+      "deficiencyId": "cmvyxk7oe000xy69xbt4vr6b3",
       "type": "ESCALATION",
-      "message": "Escalation: FIC-012 deficiency overdue since 2026-11-02T06:54:03.037Z, owner Gauri Registrar (fictional) – Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
-      "dedupKey": "ESCALATION:cmvywjs09000xy6vyh1punjvj:1793602443037",
+      "message": "Escalation: FIC-012 deficiency overdue since 2026-11-02T07:22:22.947Z, owner Gauri Registrar (fictional) – Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
+      "dedupKey": "ESCALATION:cmvyxk7oe000xy69xbt4vr6b3:1793604142947",
       "isRead": false,
-      "createdAt": "2026-11-02T06:56:06.412Z",
+      "createdAt": "2026-11-02T07:24:26.278Z",
       "user": {
-        "id": "cmvy5x9be001cmvaz81z3xcw9",
+        "id": "cmvyx0wu5001cy68e4may19od",
         "name": "Chitra Officer (fictional)",
         "email": "officer1@niyamsetu.test",
         "role": "OFFICER"
       },
       "deficiency": {
-        "id": "cmvywjs09000xy6vyh1punjvj",
+        "id": "cmvyxk7oe000xy69xbt4vr6b3",
         "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
         "status": "VERIFIED",
-        "applicationId": "cmvywjry5000fy6vymfy0dzv3"
+        "applicationId": "cmvyxk7mf000fy69xytjw6bex"
       }
-    },
-    {
-      "id": "cmvywjs3b002hy6vyamlfambn",
-      "userId": "cmvy5x9b80019mvazika6aolz",
-      "deficiencyId": "cmvy5xajb001dmvb3mty75wwt",
-      "type": "ESCALATION",
-      "message": "Escalation: FIC-008 deficiency overdue since 2026-11-01T18:37:43.895Z, owner unassigned – 4 labs is below min 6 labs (MIN_LABS v1)",
-      "dedupKey": "ESCALATION:cmvy5xajb001dmvb3mty75wwt:1793558263895",
-      "isRead": false,
-      "createdAt": "2026-11-02T06:53:03.095Z",
-      "user": {
-        "id": "cmvy5x9b80019mvazika6aolz",
-        "name": "Asha Admin (fictional)",
-        "email": "admin1@niyamsetu.test",
-        "role": "ADMIN"
-      },
-      "deficiency": {
-        "id": "cmvy5xajb001dmvb3mty75wwt",
-        "requirement": "4 labs is below min 6 labs (MIN_LABS v1)",
-        "status": "OVERDUE",
-        "applicationId": "cmvy5xagx000vmvb3wd3ng8ph"
-      }
-    },
-    {
-      "…": "3 more items trimmed"
     }
   ]
 }
@@ -1416,21 +1417,21 @@ Real response as admin1 → **200**
 
 ```json
 {
-  "generatedAt": "2026-11-02T06:56:06.666Z",
-  "applications": 10,
+  "generatedAt": "2026-11-02T07:24:26.604Z",
+  "applications": 7,
   "byStage": {
-    "SUBMITTED": 3,
-    "SCRUTINY": 2,
+    "SUBMITTED": 1,
+    "SCRUTINY": 1,
     "EXPERT_VISIT": 1,
     "COMMITTEE": 1,
     "APPROVED": 2,
     "RETURNED": 1
   },
-  "openDeficiencies": 4,
+  "openDeficiencies": 0,
   "dueSoon": 0,
-  "overdue": 4,
-  "escalated": 4,
-  "unassignedDeficiencies": 3
+  "overdue": 0,
+  "escalated": 0,
+  "unassignedDeficiencies": 0
 }
 ```
 
@@ -1450,11 +1451,11 @@ Real response as admin1 → **200**
   "byStatus": [
     {
       "stage": "SUBMITTED",
-      "count": 3
+      "count": 1
     },
     {
       "stage": "SCRUTINY",
-      "count": 2
+      "count": 1
     },
     {
       "…": "4 more items trimmed"
@@ -1479,23 +1480,23 @@ Real response as admin1 → **200**
   "workload": [
     {
       "officer": {
-        "id": "cmvy5x9be001cmvaz81z3xcw9",
+        "id": "cmvyx0wu5001cy68e4may19od",
         "name": "Chitra Officer (fictional)",
         "email": "officer1@niyamsetu.test"
       },
-      "assignedApplications": 6,
-      "openDeficiencies": 3,
-      "overdueDeficiencies": 3
+      "assignedApplications": 4,
+      "openDeficiencies": 0,
+      "overdueDeficiencies": 0
     },
     {
       "officer": {
-        "id": "cmvy5x9bg001emvaz8jtipyj9",
+        "id": "cmvyx0wu7001ey68e45cny8qn",
         "name": "Dev Officer (fictional)",
         "email": "officer2@niyamsetu.test"
       },
-      "assignedApplications": 4,
-      "openDeficiencies": 1,
-      "overdueDeficiencies": 1
+      "assignedApplications": 3,
+      "openDeficiencies": 0,
+      "overdueDeficiencies": 0
     }
   ]
 }
@@ -1517,13 +1518,13 @@ Real response as admin1 → **200**
   "byRule": [
     {
       "code": "FACULTY_RATIO",
-      "total": 1,
-      "open": 1
+      "total": 0,
+      "open": 0
     },
     {
       "code": "MIN_BUILTUP_AREA",
-      "total": 1,
-      "open": 1
+      "total": 0,
+      "open": 0
     },
     {
       "…": "3 more items trimmed"
@@ -1547,55 +1548,32 @@ Real response as officer1 → **200**
 
 ```json
 {
-  "total": 4,
+  "total": 1,
   "overdue": [
     {
-      "id": "cmvy5xart002fmvb3cdf3t29u",
-      "requirement": "Required documents: FIRE_NOC expired 2026-09-30 (REQUIRED_DOCUMENTS v1)",
+      "id": "cmvyxk7oe000xy69xbt4vr6b3",
+      "requirement": "Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1)",
       "status": "OVERDUE",
       "rule": "REQUIRED_DOCUMENTS v1",
       "application": {
-        "id": "cmvy5xapj001xmvb3ffubidtw",
+        "id": "cmvyxk7mf000fy69xytjw6bex",
         "programme": "B.Tech Computer Science",
         "institution": {
-          "code": "FIC-011",
-          "name": "Kosi Plains Institute of Engineering"
+          "code": "FIC-012",
+          "name": "Mahanadi Delta Institute of Technology"
         }
       },
       "owner": {
-        "id": "cmvy5x9bn001kmvazqr9ccixt",
+        "id": "cmvyx0wub001ky68erlljimmq",
         "name": "Gauri Registrar (fictional)",
         "email": "inst3@niyamsetu.test",
         "role": "INSTITUTION"
       },
-      "dueDate": "2026-11-01T18:28:44.291Z",
-      "hoursOverdue": 12.5,
-      "minutesOverdue": 747,
+      "dueDate": "2026-11-02T07:22:22.947Z",
+      "hoursOverdue": 0,
+      "minutesOverdue": 2,
       "escalated": true,
-      "escalatedAt": "2026-11-01T18:30:50.848Z"
-    },
-    {
-      "id": "cmvy5xaj70017mvb3i6c6ab62",
-      "requirement": "Built-up area 7.5 sqm per student is below min 10 (MIN_BUILTUP_AREA v1)",
-      "status": "OVERDUE",
-      "rule": "MIN_BUILTUP_AREA v1",
-      "application": {
-        "id": "cmvy5xagx000vmvb3wd3ng8ph",
-        "programme": "B.Tech Civil",
-        "institution": {
-          "code": "FIC-008",
-          "name": "Sahyadri Pines Institute of Technology"
-        }
-      },
-      "owner": null,
-      "dueDate": "2026-11-01T18:32:50.976Z",
-      "hoursOverdue": 12.4,
-      "minutesOverdue": 743,
-      "escalated": true,
-      "escalatedAt": "2026-11-02T06:53:03.046Z"
-    },
-    {
-      "…": "2 more items trimmed"
+      "escalatedAt": "2026-11-02T07:24:26.235Z"
     }
   ]
 }
@@ -1623,15 +1601,15 @@ Real response as admin1 → **200**
 
 ```json
 {
-  "total": 78,
+  "total": 44,
   "audit": [
     {
-      "id": "cmvywnppg004dy6vygx3ctiqd",
-      "createdAt": "2026-11-02T06:56:06.628Z",
+      "id": "cmvyxo5ds003dy69x1m0cudh4",
+      "createdAt": "2026-11-02T07:24:26.560Z",
       "action": "STATUS_CHANGE",
       "entityType": "Application",
-      "entityId": "cmvywjry5000fy6vymfy0dzv3",
-      "actorId": "cmvy5x9be001cmvaz81z3xcw9",
+      "entityId": "cmvyxk7mf000fy69xytjw6bex",
+      "actorId": "cmvyx0wu5001cy68e4may19od",
       "actorName": "Chitra Officer (fictional)",
       "actorRole": "OFFICER",
       "before": {
@@ -1642,24 +1620,24 @@ Real response as admin1 → **200**
       }
     },
     {
-      "id": "cmvywnpp60049y6vytx08ufq2",
-      "createdAt": "2026-11-02T06:56:06.618Z",
+      "id": "cmvyxo5d80039y69xycuhvl4w",
+      "createdAt": "2026-11-02T07:24:26.541Z",
       "action": "CREATE",
       "entityType": "Alert",
-      "entityId": "cmvywnpp50047y6vy1lfv1jgo",
+      "entityId": "cmvyxo5d70037y69xog6kl0y1",
       "actorId": null,
       "actorName": "System",
       "actorRole": null,
       "before": null,
       "after": {
-        "id": "cmvywnpp50047y6vy1lfv1jgo",
+        "id": "cmvyxo5d70037y69xog6kl0y1",
         "type": "STATUS_CHANGE",
         "isRead": false,
-        "userId": "cmvy5x9bn001kmvazqr9ccixt",
+        "userId": "cmvyx0wub001ky68erlljimmq",
         "message": "Evidence verified for FIC-012: Required documents: FIRE_NOC expired 2026-10-03 (REQUIRED_DOCUMENTS v1) – Renewed NOC checked",
-        "dedupKey": "VERIFIED:cmvywnpoe003ty6vyqo5t4rog",
-        "createdAt": "2026-11-02T06:56:06.617Z",
-        "deficiencyId": "cmvywjs09000xy6vyh1punjvj"
+        "dedupKey": "VERIFIED:cmvyxo5c4002ty69xq2mfxw5y",
+        "createdAt": "2026-11-02T07:24:26.539Z",
+        "deficiencyId": "cmvyxk7oe000xy69xbt4vr6b3"
       }
     },
     {
@@ -1685,16 +1663,16 @@ Real response as inst3 → **200**
 
 ```json
 {
-  "applicationId": "cmvywjry5000fy6vymfy0dzv3",
+  "applicationId": "cmvyxk7mf000fy69xytjw6bex",
   "total": 21,
   "audit": [
     {
-      "id": "cmvywnppg004dy6vygx3ctiqd",
-      "createdAt": "2026-11-02T06:56:06.628Z",
+      "id": "cmvyxo5ds003dy69x1m0cudh4",
+      "createdAt": "2026-11-02T07:24:26.560Z",
       "action": "STATUS_CHANGE",
       "entityType": "Application",
-      "entityId": "cmvywjry5000fy6vymfy0dzv3",
-      "actorId": "cmvy5x9be001cmvaz81z3xcw9",
+      "entityId": "cmvyxk7mf000fy69xytjw6bex",
+      "actorId": "cmvyx0wu5001cy68e4may19od",
       "actorName": "Chitra Officer (fictional)",
       "actorRole": "OFFICER",
       "before": {
@@ -1705,23 +1683,23 @@ Real response as inst3 → **200**
       }
     },
     {
-      "id": "cmvywnpp20045y6vy8a0nhgln",
-      "createdAt": "2026-11-02T06:56:06.615Z",
+      "id": "cmvyxo5d40035y69x5d0tdrqw",
+      "createdAt": "2026-11-02T07:24:26.536Z",
       "action": "STATUS_CHANGE",
       "entityType": "Deficiency",
-      "entityId": "cmvywjs09000xy6vyh1punjvj",
-      "actorId": "cmvy5x9be001cmvaz81z3xcw9",
+      "entityId": "cmvyxk7oe000xy69xbt4vr6b3",
+      "actorId": "cmvyx0wu5001cy68e4may19od",
       "actorName": "Chitra Officer (fictional)",
       "actorRole": "OFFICER",
       "before": {
         "status": "EVIDENCE_SUBMITTED",
-        "dueDate": "2026-11-02T07:06:06.556Z",
+        "dueDate": "2026-11-02T07:34:26.467Z",
         "escalatedAt": null
       },
       "after": {
         "remark": "Renewed NOC checked",
         "status": "VERIFIED",
-        "dueDate": "2026-11-02T07:06:06.556Z",
+        "dueDate": "2026-11-02T07:34:26.467Z",
         "escalatedAt": null
       }
     },
@@ -1741,7 +1719,7 @@ Real response as inst3 → **200**
 | | |
 | --- | --- |
 | Roles | public |
-| Errors | 500 `{ "status": "error", "db": "down" }` |
+| Errors | 503 `{ "error": "Database unavailable", "status": "error", "db": "down" }` |
 
 Real response → **200**
 

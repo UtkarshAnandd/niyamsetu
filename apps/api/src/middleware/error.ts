@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { MulterError } from "multer";
 import { UploadError } from "./upload";
+import { DB_CONNECTION_CODES } from "../db";
 
 type BodyParserError = { type: string; status: number; message: string };
 function isBodyParserError(err: unknown): err is BodyParserError {
@@ -30,6 +31,14 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   }
   if (err instanceof UploadError) {
     return res.status(400).json({ error: err.message });
+  }
+  // Database down or restarting: tell the client to try again rather than "server error".
+  if (
+    err instanceof Prisma.PrismaClientInitializationError ||
+    (err instanceof Prisma.PrismaClientKnownRequestError && DB_CONNECTION_CODES.includes(err.code))
+  ) {
+    console.error("[db] unavailable:", (err as Error).message.split("\n").pop());
+    return res.status(503).json({ error: "Database unavailable, try again" });
   }
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === "P2002") {

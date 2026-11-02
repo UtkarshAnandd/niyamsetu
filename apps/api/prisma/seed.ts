@@ -2,10 +2,10 @@
 // people or AICTE norms. Rule thresholds are placeholders.
 import { PrismaClient, ApplicationStage, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { DEMO_PASSWORD } from "./demo-password";
 
 const prisma = new PrismaClient();
 
-const DEMO_PASSWORD = "Demo@123";
 const PLACEHOLDER_SOURCE = "placeholder – not a real AICTE norm";
 
 const DAY = 24 * 60 * 60 * 1000;

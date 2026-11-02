@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
-import { ApplicationStage, type Prisma } from "@prisma/client";
+import { ApplicationStage } from "@prisma/client";
 import { prisma } from "../db";
+import { idParams, limitQuery } from "../services/validation";
 import { audit } from "../services/audit";
 import { requireAuth, requireRole } from "../middleware/auth";
 import {
   ALLOWED_TRANSITIONS,
   EXPERT_VISIT_STAGES,
+  applicationScope,
   canChangeApplication,
   canViewApplication,
 } from "../services/workflow";
@@ -60,28 +62,30 @@ router.post("/", requireRole("INSTITUTION", "ADMIN"), async (req, res) => {
   res.status(201).json({ application });
 });
 
-// GET /api/applications (role-filtered)
+// GET /api/applications?limit= (role-filtered, newest first)
 router.get("/", async (req, res) => {
-  const user = req.user!;
-  let where: Prisma.ApplicationWhereInput = {};
-  if (user.role === "OFFICER") where = { assignedOfficerId: user.userId };
-  if (user.role === "INSTITUTION") where = { institutionId: user.institutionId ?? "__none__" };
+  const { limit } = limitQuery.parse(req.query);
+  const where = applicationScope(req.user!);
 
-  const applications = await prisma.application.findMany({
-    where,
-    include: {
-      institution: { select: { id: true, code: true, name: true } },
-      assignedOfficer: { select: { id: true, name: true, email: true } },
-    },
-    orderBy: { submittedAt: "desc" },
-  });
-  res.json({ applications });
+  const [total, applications] = await Promise.all([
+    prisma.application.count({ where }),
+    prisma.application.findMany({
+      where,
+      include: {
+        institution: { select: { id: true, code: true, name: true } },
+        assignedOfficer: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { submittedAt: "desc" },
+      take: limit,
+    }),
+  ]);
+  res.json({ total, applications });
 });
 
 // GET /api/applications/:id (with stage history)
 router.get("/:id", async (req, res) => {
   const application = await prisma.application.findUnique({
-    where: { id: req.params.id },
+    where: { id: idParams.parse(req.params).id },
     include: {
       institution: true,
       assignedOfficer: { select: { id: true, name: true, email: true } },
@@ -105,7 +109,7 @@ router.patch("/:id/stage", requireRole("OFFICER", "ADMIN"), async (req, res) => 
   const user = req.user!;
   const { toStage, remark } = stageSchema.parse(req.body);
 
-  const app = await prisma.application.findUnique({ where: { id: String(req.params.id) } });
+  const app = await prisma.application.findUnique({ where: { id: idParams.parse(req.params).id } });
   if (!app) {
     return res.status(404).json({ error: "Application not found" });
   }
@@ -149,7 +153,7 @@ router.patch("/:id/stage", requireRole("OFFICER", "ADMIN"), async (req, res) => 
 router.post("/:id/assign", requireRole("ADMIN"), async (req, res) => {
   const { officerId } = assignSchema.parse(req.body);
 
-  const app = await prisma.application.findUnique({ where: { id: String(req.params.id) } });
+  const app = await prisma.application.findUnique({ where: { id: idParams.parse(req.params).id } });
   if (!app) {
     return res.status(404).json({ error: "Application not found" });
   }
@@ -173,7 +177,7 @@ router.patch("/:id/expert-visit", requireRole("OFFICER", "ADMIN"), async (req, r
   const user = req.user!;
   const { expertVisitDate, expertNames } = expertVisitSchema.parse(req.body);
 
-  const app = await prisma.application.findUnique({ where: { id: String(req.params.id) } });
+  const app = await prisma.application.findUnique({ where: { id: idParams.parse(req.params).id } });
   if (!app) {
     return res.status(404).json({ error: "Application not found" });
   }

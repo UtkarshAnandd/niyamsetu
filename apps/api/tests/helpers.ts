@@ -5,6 +5,7 @@ import fs from "node:fs";
 import bcrypt from "bcryptjs";
 import { prisma } from "../src/db";
 import { UPLOAD_DIR } from "../src/middleware/upload";
+import { DEMO_PASSWORD } from "../prisma/demo-password";
 
 if (!process.env.DATABASE_URL?.includes("/niyamsetu_test")) {
   throw new Error("Tests must run against the niyamsetu_test database. Use `npm test`.");
@@ -12,7 +13,7 @@ if (!process.env.DATABASE_URL?.includes("/niyamsetu_test")) {
 
 export { prisma };
 export const BASE = `http://localhost:${process.env.TEST_PORT ?? "4100"}/api`;
-export const PASSWORD = "Demo@123";
+export const PASSWORD = DEMO_PASSWORD;
 const MINUTE = 60 * 1000;
 const DAY = 24 * 60 * MINUTE;
 

@@ -30,7 +30,7 @@ app.get("/api/health", async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`;
     res.json({ status: "ok", db: "up", demoMode: process.env.DEMO_MODE === "true" });
   } catch {
-    res.status(500).json({ status: "error", db: "down" });
+    res.status(503).json({ error: "Database unavailable", status: "error", db: "down" });
   }
 });
 
@@ -46,6 +46,11 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/audit", auditRouter);
 app.use("/api/applications", applicationAuditRouter);
 app.use("/api/users", userRoutes);
+
+// Unknown routes get the same JSON error shape as everything else.
+app.use((_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
 
 app.use(errorHandler);
 

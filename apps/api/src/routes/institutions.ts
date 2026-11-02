@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db";
 import { audit } from "../services/audit";
+import { limitQuery } from "../services/validation";
 import { requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -43,18 +44,24 @@ router.post("/", requireRole("ADMIN"), async (req, res) => {
   res.status(201).json({ institution });
 });
 
-// GET /api/institutions (ADMIN, OFFICER: all; INSTITUTION: only its own)
+// GET /api/institutions?limit= (ADMIN, OFFICER: all; INSTITUTION: only its own)
 router.get("/", async (req, res) => {
   const user = req.user!;
+  const { limit } = limitQuery.parse(req.query);
   if (user.role === "INSTITUTION" && !user.institutionId) {
-    return res.json({ institutions: [] });
+    return res.json({ total: 0, institutions: [] });
   }
-  const institutions = await prisma.institution.findMany({
-    where: user.role === "INSTITUTION" ? { id: user.institutionId! } : {},
-    include: { documents: true },
-    orderBy: { code: "asc" },
-  });
-  res.json({ institutions });
+  const where = user.role === "INSTITUTION" ? { id: user.institutionId! } : {};
+  const [total, institutions] = await Promise.all([
+    prisma.institution.count({ where }),
+    prisma.institution.findMany({
+      where,
+      include: { documents: true },
+      orderBy: { code: "asc" },
+      take: limit,
+    }),
+  ]);
+  res.json({ total, institutions });
 });
 
 export default router;

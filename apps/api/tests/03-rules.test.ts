@@ -67,6 +67,29 @@ describe("3. Rules engine", () => {
     });
   }
 
+  it("a failing value shows enough decimals to be visibly below a minimum (9.99, not 10.0)", async () => {
+    const { appId, result } = await checkInstitution({ builtUpAreaSqm: 1999 }); // 1999 / 200 = 9.995
+    const r = result.results.find((x: any) => x.code === "MIN_BUILTUP_AREA");
+    assert.equal(r.passed, false);
+    assert.equal(r.actual, "9.99 sqm/student");
+    const d = await prisma.deficiency.findFirstOrThrow({ where: { applicationId: appId } });
+    assert.match(d.requirement, /^Built-up area 9\.99 sqm per student is below min 10 /);
+  });
+
+  it("a failing value shows enough decimals to be visibly above a maximum (20.01, not 20.0)", async () => {
+    // 2001 / 100 = 20.01; built-up area raised so only the ratio fails
+    const { result } = await checkInstitution({ studentIntake: 2001, facultyCount: 100, builtUpAreaSqm: 24012 });
+    const failed = result.results.filter((x: any) => !x.passed);
+    assert.deepEqual(failed.map((x: any) => x.code), ["FACULTY_RATIO"]);
+    assert.equal(failed[0].actual, "20.01:1");
+    assert.match(result.deficienciesCreated[0].requirement, /^Faculty ratio 20\.01:1 exceeds max 20:1 /);
+  });
+
+  it("passing values keep one decimal (16.7:1)", async () => {
+    const { result } = await checkInstitution({}); // 200 / 12 = 16.67
+    assert.equal(result.results.find((x: any) => x.code === "FACULTY_RATIO").actual, "16.7:1");
+  });
+
   it("a document with no expiry date never counts as expired", async () => {
     const { result } = await checkInstitution({
       documents: [

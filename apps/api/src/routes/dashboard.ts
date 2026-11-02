@@ -1,17 +1,15 @@
 import { Router } from "express";
-import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { ALL_STAGES, applicationScope } from "../services/workflow";
 import { RULE_CODES } from "../services/rules";
 import { windows } from "../jobs/deadlines";
+import { limitQuery } from "../services/validation";
 
 // Every number here is counted live from the database, filtered by role.
 const router = Router();
 router.use(requireAuth);
-
-const limitSchema = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) });
 
 // "Open" = anything not yet VERIFIED.
 const notVerified: Prisma.DeficiencyWhereInput = { status: { not: "VERIFIED" } };
@@ -108,7 +106,7 @@ router.get("/deficiencies-by-rule", async (req, res) => {
 
 // GET /api/dashboard/overdue?limit= – overdue deficiencies, most overdue first
 router.get("/overdue", async (req, res) => {
-  const { limit } = limitSchema.parse(req.query);
+  const { limit } = limitQuery.parse(req.query);
   const now = new Date();
   const where: Prisma.DeficiencyWhereInput = {
     AND: [{ application: applicationScope(req.user!) }, overdueWhere(now)],

@@ -2,15 +2,15 @@ import { Router } from "express";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import { idParams, limitField, limitQuery } from "../services/validation";
 import { requireAuth } from "../middleware/auth";
 import { applicationScope, canViewApplication } from "../services/workflow";
 import type { AuthUser } from "../types/express";
 
-const limit = z.coerce.number().int().min(1).max(200).default(50);
 const auditQuerySchema = z.object({
   entityType: z.string().optional(),
   entityId: z.string().optional(),
-  limit,
+  limit: limitField,
 });
 
 const withActor = { actor: { select: { id: true, name: true, role: true } } } as const;
@@ -99,13 +99,11 @@ auditRouter.get("/", async (req, res) => {
 export const applicationAuditRouter = Router();
 applicationAuditRouter.use(requireAuth);
 
-const appAuditQuerySchema = z.object({ limit });
-
 // GET /api/applications/:id/audit?limit= – the application, its rule checks,
 // deficiencies and evidence, newest first. Alert rows are left out on purpose.
 applicationAuditRouter.get("/:id/audit", async (req, res) => {
-  const { limit } = appAuditQuerySchema.parse(req.query);
-  const app = await prisma.application.findUnique({ where: { id: req.params.id } });
+  const { limit } = limitQuery.parse(req.query);
+  const app = await prisma.application.findUnique({ where: { id: idParams.parse(req.params).id } });
   if (!app) {
     return res.status(404).json({ error: "Application not found" });
   }

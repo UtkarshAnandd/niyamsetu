@@ -28,7 +28,19 @@ export function defaultDueDate(): Date {
   return new Date(Date.now() + ms);
 }
 
-const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+// Formats a measured value next to its threshold. Passing values show 1 decimal. A failing
+// value gets as many decimals as it needs (up to 6) to be visibly on the failing side,
+// e.g. 9.995 vs min 10 → "9.99", 20.001 vs max 20 → "20.001".
+function fmt(value: number, limit: number, kind: "min" | "max"): string {
+  if (!Number.isFinite(value) || Number.isInteger(value)) return String(value);
+  const failing = kind === "min" ? value < limit : value > limit;
+  if (!failing) return value.toFixed(1);
+  for (let decimals = 1; decimals <= 6; decimals++) {
+    const shown = value.toFixed(decimals);
+    if (kind === "min" ? Number(shown) < limit : Number(shown) > limit) return shown;
+  }
+  return value.toFixed(6);
+}
 const day = (d: Date) => d.toISOString().slice(0, 10);
 
 // The version of a rule in force on a date. effectiveTo covers that whole day.
@@ -55,9 +67,9 @@ function checkRule(rule: ComplianceRule, inst: InstitutionWithDocs, asOf: Date):
       const ratio = inst.facultyCount > 0 ? inst.studentIntake / inst.facultyCount : Infinity;
       return {
         passed: ratio <= max,
-        actual: `${fmt(ratio)}:1`,
+        actual: `${fmt(ratio, max, "max")}:1`,
         expected: `max ${max}:1`,
-        requirement: `Faculty ratio ${fmt(ratio)}:1 exceeds max ${max}:1 (${label})`,
+        requirement: `Faculty ratio ${fmt(ratio, max, "max")}:1 exceeds max ${max}:1 (${label})`,
       };
     }
     case "MIN_BUILTUP_AREA": {
@@ -65,18 +77,18 @@ function checkRule(rule: ComplianceRule, inst: InstitutionWithDocs, asOf: Date):
       const perStudent = inst.builtUpAreaSqm / inst.studentIntake;
       return {
         passed: perStudent >= min,
-        actual: `${fmt(perStudent)} sqm/student`,
+        actual: `${fmt(perStudent, min, "min")} sqm/student`,
         expected: `min ${min} sqm/student`,
-        requirement: `Built-up area ${fmt(perStudent)} sqm per student is below min ${min} (${label})`,
+        requirement: `Built-up area ${fmt(perStudent, min, "min")} sqm per student is below min ${min} (${label})`,
       };
     }
     case "MIN_LAND_AREA": {
       const min = p.minAcres!;
       return {
         passed: inst.landAreaAcres >= min,
-        actual: `${fmt(inst.landAreaAcres)} acres`,
+        actual: `${fmt(inst.landAreaAcres, min, "min")} acres`,
         expected: `min ${min} acres`,
-        requirement: `Land area ${fmt(inst.landAreaAcres)} acres is below min ${min} acres (${label})`,
+        requirement: `Land area ${fmt(inst.landAreaAcres, min, "min")} acres is below min ${min} acres (${label})`,
       };
     }
     case "MIN_LABS": {

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db";
+import { idParams } from "../services/validation";
 import { audit } from "../services/audit";
 import { evaluate } from "../services/rules";
 import { canViewApplication } from "../services/workflow";
@@ -18,7 +19,7 @@ router.post("/:id/check", async (req, res) => {
   const user = req.user!;
   const { asOf } = checkSchema.parse(req.body ?? {});
 
-  const app = await prisma.application.findUnique({ where: { id: req.params.id } });
+  const app = await prisma.application.findUnique({ where: { id: idParams.parse(req.params).id } });
   if (!app) {
     return res.status(404).json({ error: "Application not found" });
   }
@@ -46,7 +47,7 @@ router.post("/:id/check", async (req, res) => {
 
 // GET /api/applications/:id/checks – latest result per rule code (asOf previews excluded)
 router.get("/:id/checks", async (req, res) => {
-  const app = await prisma.application.findUnique({ where: { id: req.params.id } });
+  const app = await prisma.application.findUnique({ where: { id: idParams.parse(req.params).id } });
   if (!app) {
     return res.status(404).json({ error: "Application not found" });
   }

@@ -1,6 +1,7 @@
 import path from "path";
 import { Router } from "express";
 import { prisma } from "../db";
+import { idParams } from "../services/validation";
 import { canViewApplication } from "../services/workflow";
 import { requireAuth } from "../middleware/auth";
 import { UPLOAD_DIR } from "../middleware/upload";
@@ -11,7 +12,7 @@ router.use(requireAuth);
 // GET /api/evidence/:id/file – same visibility as the deficiency's application.
 router.get("/:id/file", async (req, res) => {
   const evidence = await prisma.evidence.findUnique({
-    where: { id: req.params.id },
+    where: { id: idParams.parse(req.params).id },
     include: { deficiency: { include: { application: true } } },
   });
   if (!evidence) {

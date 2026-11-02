@@ -2,7 +2,7 @@ import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import {
   api, check, createApplication, createInstitution, createInstitutionUser, daysFromNow, file, form,
-  institutionBody, seeded, shared, uniqueCode, type Session,
+  institutionBody, PASSWORD, prisma, seeded, shared, uniqueCode, type Session,
 } from "./helpers";
 
 const MISSING = "doesnotexist0000000000000";
@@ -93,9 +93,59 @@ describe("7. Validation and error handling", () => {
     });
   }
 
+  // Every list endpoint: ?limit default 50, min 1, max 200, and a `total` count.
+  const lists: { path: () => string; key: string }[] = [
+    { path: () => "/institutions", key: "institutions" },
+    { path: () => "/applications", key: "applications" },
+    { path: () => "/deficiencies", key: "deficiencies" },
+    { path: () => "/alerts", key: "alerts" },
+    { path: () => "/alerts/history", key: "alerts" },
+    { path: () => "/audit", key: "audit" },
+    { path: () => `/applications/${appId}/audit`, key: "audit" },
+    { path: () => "/dashboard/overdue", key: "overdue" },
+  ];
+
+  for (const l of lists) {
+    it(`?limit on GET ${l.path().replace(/cm\w+/, ":id")}: default 50, limit=2, 0 and 201 → 400`, async () => {
+      const sep = l.path().includes("?") ? "&" : "?";
+      const all = await api(admin.token, "GET", l.path());
+      assert.equal(all.status, 200, all.raw);
+      assert.equal(typeof all.body.total, "number");
+      assert.equal(all.body[l.key].length, Math.min(all.body.total, 50));
+      const two = await api(admin.token, "GET", `${l.path()}${sep}limit=2`);
+      assert.equal(two.body[l.key].length, Math.min(two.body.total, 2));
+      assert.equal(two.body.total, all.body.total);
+      for (const bad of ["0", "201"]) {
+        const r = await api(admin.token, "GET", `${l.path()}${sep}limit=${bad}`);
+        assert.equal(r.status, 400, `limit=${bad}`);
+        assert.equal(r.body.error, "Validation failed");
+        assert.equal(r.body.issues[0].path, "limit");
+      }
+    });
+  }
+
+  it("GET /institutions: total equals the real row count and the default page is 50", async () => {
+    // Make sure there are more than 50 institutions, so the default limit really cuts the list.
+    while ((await prisma.institution.count()) <= 55) await createInstitution(admin, "PAGE");
+    const r = await api(admin.token, "GET", "/institutions");
+    assert.equal(r.body.total, await prisma.institution.count());
+    assert.equal(r.body.institutions.length, 50);
+    const max = await api(admin.token, "GET", "/institutions?limit=200");
+    assert.equal(max.body.institutions.length, Math.min(r.body.total, 200));
+  });
+
+  it("unknown routes return the JSON error shape (404 { error })", async () => {
+    const a = await api(null, "GET", "/does-not-exist");
+    assert.equal(a.status, 404);
+    assert.deepEqual(a.body, { error: "Not found" });
+    const b = await api(admin.token, "GET", `/applications/${appId}/nope`);
+    assert.equal(b.status, 404);
+    assert.deepEqual(b.body, { error: "Not found" });
+  });
+
   it("no response anywhere contains passwordHash (all responses of the whole run)", async () => {
     // Hit the endpoints that return user objects, then check everything recorded so far.
-    await api(null, "POST", "/auth/login", { email: "admin1@niyamsetu.test", password: "Demo@123" });
+    await api(null, "POST", "/auth/login", { email: "admin1@niyamsetu.test", password: PASSWORD });
     for (const p of ["/auth/me", "/institutions", "/applications", `/applications/${appId}`, "/deficiencies",
       `/deficiencies/${defId}`, "/alerts/history?limit=200", "/audit?limit=200", "/dashboard/workload", "/dashboard/overdue"]) {
       const r = await api(admin.token, "GET", p);

@@ -2,10 +2,11 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { z } from "zod";
 import { DeficiencyStatus, type Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import { idParams, limitField } from "../services/validation";
 import { audit } from "../services/audit";
 import { alertAdmins, createAlert } from "../services/alerts";
 import { defaultDueDate } from "../services/rules";
-import { canChangeApplication, canViewApplication } from "../services/workflow";
+import { applicationScope, canChangeApplication, canViewApplication } from "../services/workflow";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { cleanFileName, evidenceUpload } from "../middleware/upload";
 
@@ -15,6 +16,7 @@ router.use(requireAuth);
 const listQuerySchema = z.object({
   applicationId: z.string().optional(),
   status: z.enum(DeficiencyStatus).optional(),
+  limit: limitField,
 });
 const assignSchema = z
   .object({
@@ -23,26 +25,26 @@ const assignSchema = z
   })
   .refine((b) => b.ownerId || b.dueDate, { message: "Send ownerId and/or dueDate" });
 
-// GET /api/deficiencies?applicationId=&status=
+// GET /api/deficiencies?applicationId=&status=&limit=
 // INSTITUTION: own institution; OFFICER: on applications assigned to them; ADMIN: all.
 router.get("/", async (req, res) => {
-  const user = req.user!;
-  const { applicationId, status } = listQuerySchema.parse(req.query);
+  const { applicationId, status, limit } = listQuerySchema.parse(req.query);
+  const where: Prisma.DeficiencyWhereInput = { application: applicationScope(req.user!), applicationId, status };
 
-  let appFilter: Prisma.ApplicationWhereInput = {};
-  if (user.role === "OFFICER") appFilter = { assignedOfficerId: user.userId };
-  if (user.role === "INSTITUTION") appFilter = { institutionId: user.institutionId ?? "__none__" };
-
-  const deficiencies = await prisma.deficiency.findMany({
-    where: { application: appFilter, applicationId, status },
-    include: {
-      owner: { select: { id: true, name: true, email: true, role: true } },
-      application: { select: { id: true, programme: true, institution: { select: { code: true, name: true } } } },
-      ruleCheck: { select: { rule: { select: { code: true, version: true } } } },
-    },
-    orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
-  });
-  res.json({ deficiencies });
+  const [total, deficiencies] = await Promise.all([
+    prisma.deficiency.count({ where }),
+    prisma.deficiency.findMany({
+      where,
+      include: {
+        owner: { select: { id: true, name: true, email: true, role: true } },
+        application: { select: { id: true, programme: true, institution: { select: { code: true, name: true } } } },
+        ruleCheck: { select: { rule: { select: { code: true, version: true } } } },
+      },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+      take: limit,
+    }),
+  ]);
+  res.json({ total, deficiencies });
 });
 
 // PATCH /api/deficiencies/:id/assign (assigned OFFICER, ADMIN)
@@ -52,7 +54,7 @@ router.patch("/:id/assign", requireRole("OFFICER", "ADMIN"), async (req, res) =>
   const { ownerId, dueDate } = assignSchema.parse(req.body);
 
   const deficiency = await prisma.deficiency.findUnique({
-    where: { id: String(req.params.id) },
+    where: { id: idParams.parse(req.params).id },
     include: { application: true },
   });
   if (!deficiency) {
@@ -92,7 +94,7 @@ router.patch("/:id/assign", requireRole("OFFICER", "ADMIN"), async (req, res) =>
 // GET /api/deficiencies/:id – with rule, application, owner and evidence list
 router.get("/:id", async (req, res) => {
   const deficiency = await prisma.deficiency.findUnique({
-    where: { id: req.params.id },
+    where: { id: idParams.parse(req.params).id },
     include: {
       ruleCheck: { include: { rule: true } },
       application: {
@@ -125,7 +127,7 @@ router.get("/:id", async (req, res) => {
 async function canUploadEvidence(req: Request, res: Response, next: NextFunction) {
   const user = req.user!;
   const deficiency = await prisma.deficiency.findUnique({
-    where: { id: String(req.params.id) },
+    where: { id: idParams.parse(req.params).id },
     include: { application: { include: { institution: true } } },
   });
   if (!deficiency) {
@@ -210,7 +212,7 @@ router.patch("/:id/verify", requireRole("OFFICER", "ADMIN"), async (req, res) =>
   const { decision, remark } = verifySchema.parse(req.body);
 
   const deficiency = await prisma.deficiency.findUnique({
-    where: { id: String(req.params.id) },
+    where: { id: idParams.parse(req.params).id },
     include: {
       application: { include: { institution: true } },
       evidence: { orderBy: { uploadedAt: "desc" }, take: 1 },

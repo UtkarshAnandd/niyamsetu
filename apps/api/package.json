@@ -10,7 +10,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset --force",
-    "test": "node --env-file=.env --import tsx tests/run.ts"
+    "test": "node --env-file=.env --import tsx tests/run.ts",
+    "demo:reset": "node --env-file=.env --import tsx prisma/demo-reset.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
